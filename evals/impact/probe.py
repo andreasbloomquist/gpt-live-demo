@@ -20,7 +20,6 @@ from __future__ import annotations
 import argparse
 import importlib
 import importlib.util
-import inspect
 import json
 import os
 import sys
@@ -63,21 +62,8 @@ def _module_files(module: str, tree: Path) -> list[str]:
     return out
 
 
-def _compose_kwargs(composer_mod: Any, settings: Any) -> dict[str, Any]:
-    """Runtime prompt variables (e.g. ``today``) if the agent package provides a hook for them.
-
-    They are pinned to fixed values so base and head render identically on any day.
-    """
-    hook = getattr(composer_mod, "runtime_variables", None)
-    if hook is None:
-        return {}
-    try:
-        params = inspect.signature(hook).parameters
-        extra = hook(settings) if params else hook()
-    except Exception:
-        return {}
-    pinned = {k: f"<{k}>" for k in (extra or {})}
-    return {"extra_variables": pinned} if pinned else {}
+def _with_greeting(voice: str, greeting: str | None) -> str:
+    return voice if not greeting else f"{voice}\n\n[greeting instruction]\n{greeting}"
 
 
 def probe(tree: Path) -> dict[str, Any]:
@@ -97,15 +83,17 @@ def probe(tree: Path) -> dict[str, Any]:
     if composer_cls is None:
         composer_cls = importlib.import_module("voice_agent.prompts.composer").PromptComposer
     composer = composer_cls(tree / "prompts")
-    kwargs = _compose_kwargs(prompts_pkg, settings)
+    # No extra variables: the composer renders runtime variables (``today``…) as stable
+    # ``<runtime:name>`` placeholders, so base and head render identically on any day.
     for profile in composer.list_profiles():
         try:
-            bundle = composer.compose(profile, **kwargs)
+            bundle = composer.compose(profile)
         except Exception as exc:
             result["profile_errors"][profile] = f"{type(exc).__name__}: {exc}"
             continue
         result["profiles"][profile] = {
-            "voice": bundle.voice_instructions,
+            # The greeting is spoken by the voice model: it is voice-side behaviour too.
+            "voice": _with_greeting(bundle.voice_instructions, getattr(bundle, "greeting", None)),
             "backend": bundle.backend_instructions,
             "tools": list(bundle.tools),
         }
