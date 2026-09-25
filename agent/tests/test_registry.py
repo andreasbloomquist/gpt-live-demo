@@ -1,0 +1,49 @@
+from __future__ import annotations
+
+import pytest
+from livekit.agents import FunctionTool
+from livekit.agents.llm import utils as llm_utils
+from livekit.plugins.openai.tools import WebSearch
+
+from voice_agent.config import ConfigurationError, Settings
+from voice_agent.tools import TOOL_REGISTRY, UnknownToolError, resolve_tools
+
+
+def test_registry_keys() -> None:
+    assert set(TOOL_REGISTRY) == {"web_search", "check_restaurant_availability"}
+    for name, spec in TOOL_REGISTRY.items():
+        assert spec.name == name and spec.source_modules
+
+
+def test_resolve_tools_preserves_order_and_dedupes(settings: Settings) -> None:
+    tools = resolve_tools(["check_restaurant_availability", "web_search", "web_search"], settings)
+    assert isinstance(tools[0], FunctionTool)
+    assert tools[0].info.name == "check_restaurant_availability"
+    assert isinstance(tools[1], WebSearch)
+    assert tools[1].search_context_size == "low"
+    assert len(tools) == 2
+
+
+def test_function_tool_schema_is_strict_compatible(settings: Settings) -> None:
+    (tool,) = resolve_tools(["check_restaurant_availability"], settings)
+    assert isinstance(tool, FunctionTool)
+    schema = llm_utils.build_strict_openai_schema(tool)["function"]
+    assert set(schema["parameters"]["properties"]) == {
+        "restaurant",
+        "date",
+        "time",
+        "party_size",
+        "city",
+    }
+    assert "does not book" in schema["description"]
+
+
+def test_unknown_tool(settings: Settings) -> None:
+    with pytest.raises(UnknownToolError):
+        resolve_tools(["nope"], settings)
+
+
+def test_opentable_requires_credentials() -> None:
+    settings = Settings(_env_file=None, restaurant_provider="opentable")  # type: ignore[call-arg]
+    with pytest.raises(ConfigurationError, match="OPENTABLE_CLIENT_ID"):
+        resolve_tools(["check_restaurant_availability"], settings)

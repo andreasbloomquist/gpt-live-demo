@@ -201,9 +201,7 @@ class PromptComposer:
             self._module_cache[module_id] = self._parse_module(module_id)
         return self._module_cache[module_id]
 
-    def compose(
-        self, profile: str, extra_variables: dict[str, str] | None = None
-    ) -> PromptBundle:
+    def compose(self, profile: str, extra_variables: dict[str, str] | None = None) -> PromptBundle:
         """Render a profile into a :class:`PromptBundle`.
 
         ``extra_variables`` override manifest/profile values and supply runtime variables
@@ -305,7 +303,9 @@ class PromptComposer:
         if not isinstance(data, dict):
             raise PromptCompositionError(f"{path} must be a mapping")
         if data.get("version") != 1:
-            raise PromptCompositionError(f"{path}: unsupported manifest version {data.get('version')!r}")
+            raise PromptCompositionError(
+                f"{path}: unsupported manifest version {data.get('version')!r}"
+            )
         profiles = data.get("profiles")
         if not isinstance(profiles, dict) or not profiles:
             raise PromptCompositionError(f"{path}: `profiles` must be a non-empty mapping")

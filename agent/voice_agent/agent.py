@@ -36,6 +36,8 @@ class VoiceAgent(Agent):
     async def on_enter(self) -> None:
         # GPT-Live decides turn-taking itself; generate_reply with an instruction is delivered
         # as one-off commentary asking it to speak first, so the caller isn't met with silence.
+        # Note: session.say() / interrupt() are no-ops on a duplex model (there is no separate
+        # TTS to drive and no client-side cancel), so generate_reply is the way to prompt speech.
         logger.info(
             "agent entered", extra={"profile": self.bundle.profile, "prompt": self.bundle.version}
         )

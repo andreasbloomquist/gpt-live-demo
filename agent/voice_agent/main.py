@@ -1,10 +1,19 @@
 """Agent server entrypoint.
 
-Run it with the LiveKit CLI subcommands::
+Run it with the built-in CLI subcommands::
 
     uv run voice-agent console   # talk to the agent from your terminal (no room needed)
     uv run voice-agent dev       # connect to LiveKit with hot reload
     uv run voice-agent start     # production worker
+
+LiveKit Agents 1.8 marks that built-in Python CLI as deprecated in favour of the LiveKit CLI
+(``lk agent console|dev|start``, or ``python -m livekit.agents start agent/voice_agent/main.py``),
+which discovers the module-level ``server`` global. Both paths run the same code.
+
+Dispatch: the worker registers under the agent name ``$LIVEKIT_AGENT_NAME`` (default
+``gpt-live-agent``), which enables *explicit* dispatch -- the frontend requests this agent by
+name when it creates the room token. Set ``LIVEKIT_AGENT_NAME=`` (empty) to fall back to
+automatic dispatch into every new room.
 
 Importing this module is side-effect free apart from loading ``.env``: no API keys are needed
 until a session actually starts, so tests, evals, and ``--help`` work on a fresh checkout.
@@ -22,6 +31,7 @@ Per session, the entrypoint:
 from __future__ import annotations
 
 import logging
+import os
 
 from dotenv import load_dotenv
 from livekit.agents import (
@@ -40,6 +50,11 @@ from .runtime import runtime_prompt_variables
 from .tools import resolve_tools
 
 load_dotenv()
+
+DEFAULT_AGENT_NAME = "gpt-live-agent"
+# LiveKit reads LIVEKIT_AGENT_NAME when the session is registered below (the in-code
+# `agent_name=` argument is deprecated in 1.8), so provide the default via the environment.
+os.environ.setdefault("LIVEKIT_AGENT_NAME", DEFAULT_AGENT_NAME)
 
 logger = logging.getLogger("voice_agent")
 
@@ -97,6 +112,9 @@ async def entrypoint(ctx: JobContext) -> None:
 
     ctx.add_shutdown_callback(_log_final_usage)
 
+    # Default RoomOptions publish transcripts both ways on the `lk.transcription` text stream:
+    # the agent's speech (synced to audio) and the caller's speech, which GPT-Live transcribes
+    # itself (user_transcription=True), attributed to the caller's participant identity.
     await session.start(agent=VoiceAgent(bundle, tools), room=ctx.room)
 
     # Publish the prompt version on the agent participant so frontends, recordings, and

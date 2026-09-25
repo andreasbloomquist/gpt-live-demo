@@ -52,6 +52,9 @@ target-version = "py310"
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
 ignore = ["RUF001", "RUF002", "RUF003"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["voice_agent", "evals"]
+
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true

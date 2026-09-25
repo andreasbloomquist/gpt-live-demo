@@ -94,7 +94,9 @@ class MockReservationProvider:
 
         target = _to_minutes(query.time)
         clamped = min(max(target, _to_minutes(_SERVICE_START)), _to_minutes(_SERVICE_END))
-        nearby = [s for s in open_slots if abs(_hhmm_to_minutes(s.time) - clamped) <= _WINDOW_MINUTES]
+        nearby = [
+            s for s in open_slots if abs(_hhmm_to_minutes(s.time) - clamped) <= _WINDOW_MINUTES
+        ]
 
         if any(s.time == requested for s in nearby):
             status = "available"
