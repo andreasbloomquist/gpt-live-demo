@@ -73,9 +73,10 @@ async def run_suite(
     started = time.monotonic()
     result.model_info = await runner.setup(suite)
     semaphore = asyncio.Semaphore(runner.concurrency)
-    budget_error: list[str] = []
+    budget_error: str | None = None  # set by the first trial the budget refuses; stops all cases
 
     async def run_case(case: Case) -> CaseResult:
+        nonlocal budget_error
         n = options.trials_override or suite.trials_for(case)
         case_result = CaseResult(case.id, [], suite.pass_threshold, case.description)
         for trial in range(1, n + 1):
@@ -93,7 +94,7 @@ async def run_suite(
                 try:
                     reserved = budget.reserve(runner.estimate_trial_usd(suite, case))
                 except BudgetExceeded as exc:
-                    budget_error.append(str(exc))
+                    budget_error = budget_error or str(exc)
                     break
                 trial_result = await _run_trial(
                     runner, suite, case, trial, judge_client, today, options
@@ -122,7 +123,7 @@ async def run_suite(
     finally:
         await runner.aclose()
     if budget_error:
-        result.status, result.status_detail = "budget_exceeded", budget_error[0]
+        result.status, result.status_detail = "budget_exceeded", budget_error
     result.cost_usd = sum(t.cost_usd for c in result.cases for t in c.trials)
     result.duration_s = time.monotonic() - started
     return result
