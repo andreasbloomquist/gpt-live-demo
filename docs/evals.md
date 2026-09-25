@@ -519,7 +519,7 @@ answers one question: *could this edit change behaviour?* When unsure, it answer
 | Suite comments, key order, quoting, flow vs block style | no | YAML is compared as parsed data. |
 | `evals/tests/`, `evals/README.md`, `evals/report.py` | no | These don't change how the agent behaves or how it is graded. |
 | `evals/impact/**` or `.github/workflows/evals.yml` | **yes, everything** | The planner can't judge a change to itself. CI runs the base commit's planner, which forces a full run. |
-| `docs/`, `frontend/`, other CI files (e.g. `ci.yml`) | no, fast path | Rendering is skipped entirely. |
+| `docs/`, `frontend/`, `analyzer/`, other CI files (e.g. `ci.yml`) | no, fast path | Rendering is skipped entirely. The Call Analyzer grades calls after they end; it can't change what a caller hears. |
 
 **Why ignoring *all* docstrings is safe:** some docstrings are model-visible. The
 `@function_tool` docstring and its `Args:` section become the tool's description and parameter
@@ -725,7 +725,7 @@ can't inject links, images, mentions or HTML.
 ```mermaid
 flowchart LR
     Trig["pull_request: opened, synchronize, reopened,<br/>ready_for_review, labeled, unlabeled (no paths filter)<br/>workflow_dispatch<br/>schedule 07:17 UTC nightly"] --> Plan
-    Plan["plan<br/>base commit's planner, --format github<br/>+ fork gate"] -- "run_brain and can_spend" --> Brain
+    Plan["plan<br/>base commit's planner, --format github<br/>+ fork and draft gate"] -- "run_brain and can_spend" --> Brain
     Plan -- "run_voice and can_spend" --> Voice
     Brain["brain matrix<br/>one job per suite<br/>max-parallel 3, env: evals"] -- "success or skipped" --> Voice
     Voice["voice matrix<br/>one job per suite<br/>max-parallel 2, env: evals<br/>TTS cache per suite"] --> Report
@@ -753,10 +753,13 @@ The gates run from cheapest to most expensive:
      with `--repo "$GITHUB_WORKSPACE"`, so the base's planner code fingerprints the PR's
      checkout. It emits `brain_matrix`, `voice_matrix`, per-tier fingerprints and a
      step-summary table, and writes `eval-plan.json`, which is uploaded as an artifact.
-3. **Secrets gate.** Fork PRs get `can_spend=false`, and paid jobs skip with a note ("A
-   maintainer can push the branch to this repository and run them via workflow_dispatch"). If
-   `OPENAI_API_KEY` isn't configured, the runner's `--skip-if-no-key` writes *skipped* results
-   and exits 0.
+3. **Secrets and draft gate.** Fork PRs get `can_spend=false`, and paid jobs skip with a note ("A
+   maintainer can push the branch to this repository and run them via workflow_dispatch").
+   **Draft PRs** are planned (free, so the plan shows up in the job summary) but get
+   `can_spend=false` too, because drafts churn: the paid tiers wait until the PR is marked ready
+   for review, and the `ready_for_review` event re-triggers the workflow. The `evals:full` label
+   overrides the draft gate. If `OPENAI_API_KEY` isn't configured, the runner's
+   `--skip-if-no-key` writes *skipped* results and exits 0.
 4. **Brain before voice.** The voice job requires `needs.brain.result` to be `success` or
    `skipped`. `skipped` is allowed because a voice-only change plans no brain jobs. If the brain
    tier fails, no GPT-Live minutes are spent, and the report explains why.
@@ -804,13 +807,18 @@ Other details:
 Nothing in `ci.yml` needs a secret. On a PR, a `changes` job (`dorny/paths-filter`) decides
 which areas changed, and only the jobs for those areas run; a push to `main` runs all of them.
 `lint`, `test` and `prompts` run for changes under `agent/`, `evals/`, `prompts/`,
-`pyproject.toml`, `uv.lock` or `.github/workflows/`; `frontend` runs for `frontend/` or `ci.yml`:
+`pyproject.toml`, `uv.lock` or `.github/workflows/`; `analyzer` runs for `analyzer/`,
+`pyproject.toml` (its ruff config extends the root one) or `ci.yml`; `frontend` runs for
+`frontend/` or `ci.yml`:
 
 - **`lint`**: `ruff check` and `ruff format --check`.
 - **`test`**: `pytest` over `agent/tests` and `evals/tests`.
 - **`prompts`**: renders every profile for both targets with the real composer, builds every tool
   schema (`evals.impact probe --strict`), runs `evals validate`, checks that `suite.schema.json`
   is up to date, and dry-runs both paid tiers.
+- **`analyzer`**: the Call Analyzer is a separate uv project with its own lockfile, so it gets
+  its own job: `uv sync --locked`, ruff, `pytest`, and a smoke test that seeds the six demo calls
+  with the offline heuristic into a temporary database (no keys).
 - **`frontend`**: lint, typecheck and build.
 
 ---

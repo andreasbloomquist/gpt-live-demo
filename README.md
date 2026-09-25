@@ -2,16 +2,50 @@
 
 An end-to-end, production-shaped voice agent built on **OpenAI GPT-Live** (`gpt-live-1`) and
 **LiveKit Agents**. It has a **modular prompt system**, two real tools (**web search** and
-**restaurant availability**), and a **change-aware eval system** that runs paid evals only when a
-change could actually alter the agent's behavior.
+**restaurant availability**), a **change-aware eval system** that runs paid evals only when a
+change could actually alter the agent's behavior, and **call recording** into a separate **Call
+Analyzer** service that grades every finished call against a versioned rubric. A Next.js app
+lets you talk to the agent, browse past calls, and read each call's scorecard and transcript.
 
 It is meant to be read as much as run. Every component has a written reason for existing, its
 benefits and drawbacks, and the alternatives we turned down, so you can lift the parts you want
 into your own voice agent.
 
 > **Status:** reference demo. Everything runs offline without keys (tests, prompt rendering, eval
-> planning, dry runs). A live call needs your own LiveKit project and an OpenAI key with GPT-Live
-> access. All keys in this repo are placeholders.
+> planning, dry runs, and the Call Analyzer with six graded demo calls). A live call needs your
+> own LiveKit project and an OpenAI key with GPT-Live access. All keys in this repo are
+> placeholders.
+
+---
+
+## What it looks like
+
+A graded call: the overall score, the outcome, and nine rubric dimensions, each with a
+rationale and quotes that link back into the transcript.
+
+<p align="center">
+  <img alt="Call detail: overall score, outcome and the nine-dimension scorecard with evidence quotes" src="docs/images/ui-call-detail-scorecard-light.png" width="820">
+</p>
+
+Every call the agent handles lands in **Calls**, newest first, with the caller's intent, a
+summary, the outcome and a score (light and dark follow your OS):
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/ui-calls-dark.png">
+    <img alt="Calls list: date, duration, caller intent, summary, outcome and overall score per call" src="docs/images/ui-calls-light.png" width="820">
+  </picture>
+</p>
+
+The transcript shows what the agent actually heard: per-turn speech-recognition confidence,
+interruptions, and the tool calls in between.
+
+<p align="center">
+  <img alt="Transcript with confidence badges, an interruption marker and a tool call" src="docs/images/ui-call-detail-transcript-light.png" width="820">
+</p>
+
+The **Live** view, where you talk to the agent, and the mobile layouts are in
+[`docs/frontend.md`](docs/frontend.md).
 
 ---
 
@@ -44,6 +78,11 @@ This repo is one opinionated answer to each of those constraints.
 ```mermaid
 flowchart LR
     User["Caller<br/>(browser / mobile / phone)"] <-->|"WebRTC / SIP"| SFU["LiveKit SFU<br/>(Cloud or self-hosted)"]
+    User -.->|"token"| Web
+    subgraph Web["Next.js app"]
+        Token["POST /api/token"]
+        Views["Live · Calls · Call detail"]
+    end
     SFU <-->|"WebRTC"| Worker["Agent worker<br/>LiveKit Agents (Python)"]
     Worker <-->|"WebSocket<br/>/v1/live/sessions"| Voice["GPT-Live voice model<br/>full-duplex, speaks + listens"]
     Voice -->|"delegation = responses"| Brain["Backend Responses model<br/>reasoning + tool choice"]
@@ -51,6 +90,8 @@ flowchart LR
     Brain <-->|"function call via worker"| Tool["check_restaurant_availability"]
     Tool --> Provider["ReservationProvider<br/>mock | OpenTable"]
     Prompts["prompts/manifest.yaml<br/>+ modules/*.md"] -->|"composed once per session"| Worker
+    Worker -->|"call record at hang-up<br/>POST /v1/calls"| Analyzer["Call Analyzer<br/>rubric + small LLM judge<br/>(or offline heuristic)"]
+    Views -->|"server-side only"| Analyzer
 ```
 
 1. The **browser** gets a token from the Next.js app and joins a LiveKit room over WebRTC.
@@ -60,6 +101,9 @@ flowchart LR
 4. **GPT-Live** holds the conversation. When the caller asks for something that needs thought or
    data, it hands the work to the **backend model**, which calls `web_search` (inside OpenAI) or
    `check_restaurant_availability` (in our worker). GPT-Live then speaks the result in its own words.
+5. When the caller hangs up, the worker **records the call** (transcript, tool calls, timing,
+   transcription confidence, prompt fingerprint) and posts it to the **Call Analyzer**, which
+   grades it in the background. The **Calls** views read the result.
 
 A full walkthrough of one call ("a table for four at Nopa, Friday at seven") lives in
 [`docs/architecture.md`](docs/architecture.md#4-request-walkthrough-a-table-for-four-at-nopa-friday-at-seven).
@@ -77,6 +121,7 @@ A full walkthrough of one call ("a table for four at Nopa, Friday at seven") liv
 | **Modular prompts composed per session** | Voice instructions are immutable after start, and two brains need two prompts. | Reviewable modules, strict validation, fingerprinted versions attached to every call. | One more layer of indirection than a string literal. |
 | **Tool registry + provider abstraction** | Tools should be swappable and testable without a live call. | Deterministic mock for demos and evals; OpenTable (or Resy, SevenRooms…) behind one interface. | The OpenTable client is illustrative: its API is partner-gated. |
 | **Three-tier, change-aware evals** | Audio evals are slow and costly, and most PRs don't change behavior. | Free unit tests always; cheap backend-brain evals when prompts or tools change; full voice evals only when voice behavior could change. | Voice evals rely on TTS-synthesized callers, which are cleaner than real audio. |
+| **Post-call grading in a separate Call Analyzer** instead of inside the agent or a hosted QA product | Evals test changes; only real calls show how the agent does with real people. | The agent never waits on grading; every call gets a summary, nine anchored scores with verified quotes, and exact metrics; the rubric is versioned data; runs with zero keys. | A second service and a shared token to run; an LLM judge is a biased instrument that needs human calibration; transcripts are personal data whose retention is on you. |
 
 Longer answers, with diagrams:
 
@@ -105,12 +150,22 @@ uv run pytest -q                          # composer, tools, providers, eval pla
 uv run python -m voice_agent.prompts render concierge     # see the exact prompts
 uv run python -m evals run --tier brain --dry-run          # what an eval run would do + cost estimate
 
-# Talk to it:
+# Call Analyzer, in a second terminal (no keys: the offline heuristic grades the demo calls):
+cd analyzer && uv sync && cp .env.example .env
+uv run python -m call_analyzer seed       # load + grade the six calls in analyzer/demo/calls/
+uv run python -m call_analyzer serve      # http://127.0.0.1:8080
+
+# Talk to it (from the repo root):
 uv run voice-agent console                # in your terminal, with your mic
 # ...or run it as a worker and use the web client:
 uv run voice-agent dev                    # (or: lk agent dev)
 cd frontend && npm install && cp .env.example .env.local && npm run dev   # http://localhost:3000
 ```
+
+To connect the pieces, set `CALL_ANALYZER_URL=http://localhost:8080` and the analyzer's
+`CALL_ANALYZER_TOKEN` in **both** `.env` (so the agent posts calls) and `frontend/.env.local` (so
+the Calls pages can read them). `frontend/.env.example` already has the local values; in `.env`
+they're commented out, and without them the agent writes call records to `.call-records/`.
 
 Step-by-step setup, deployment notes and troubleshooting are in
 [`docs/getting-started.md`](docs/getting-started.md).
@@ -188,6 +243,27 @@ environment, are skipped on fork PRs, and can be forced or skipped with the `eva
 
 → [`docs/evals.md`](docs/evals.md) · [`evals/README.md`](evals/README.md)
 
+## Every call, graded
+
+Evals run before you ship. The **Call Analyzer** ([`analyzer/`](analyzer)) looks at what
+happened after: every real call, graded against the same versioned rubric.
+
+- **Recording never hurts the call.** At hang-up the worker builds a `CallRecord` from the
+  session history and posts it with a 5-second budget. If the analyzer is down or not
+  configured, the record is written to `.call-records/` and can be ingested later.
+- **Code computes, the model judges.** Metrics (talk ratio, interruptions, tool errors,
+  transcription confidence) and the 0-100 overall score are computed in code. A small LLM judge
+  (any OpenAI-compatible endpoint, `gpt-5.4-mini` by default) supplies the summary, intent,
+  outcome and nine 1-5 scores. A policy violation or an invented fact caps the call at 40.
+- **Evidence must be real.** Every quote the judge cites must appear in the turn it points to,
+  or it's dropped. The transcript is fenced as untrusted data, because callers can say anything.
+- **Zero keys needed.** Without an API key, a deterministic heuristic grades calls instead. It
+  catches facts (a failed tool, an interruption, a frustrated caller), not meaning: it scores the
+  demo call with an invented parking claim 95.
+
+→ [`docs/call-analyzer.md`](docs/call-analyzer.md) · [`docs/frontend.md`](docs/frontend.md) ·
+[`analyzer/README.md`](analyzer/README.md)
+
 ---
 
 ## Repository map
@@ -200,12 +276,19 @@ agent/voice_agent/        Python LiveKit worker
   config.py, runtime.py     settings (.env) and runtime prompt variables (today, timezone)
   prompts/                  PromptComposer, PromptBundle, CLI (`python -m voice_agent.prompts`)
   tools/                    registry, web_search, restaurants/ (mock + OpenTable providers)
+  recording.py              CallRecord builder + exporter (analyzer, or .call-records/ fallback)
 agent/tests/              unit tests (offline)
 prompts/                  manifest.yaml + modules/**.md  (the prompt *data*)
 evals/                    suites, brain/voice runners, judge, change-impact planner, tests
-frontend/                 Next.js client + LiveKit token route
-docs/                     architecture, trade-offs, primer, prompts, tools, evals, getting started
-.github/workflows/        ci.yml (lint, tests, prompt render, frontend) and evals.yml
+analyzer/                 Call Analyzer: separate uv project, Dockerfile, own tests
+  call_analyzer/            FastAPI app, SQLite queue + worker, rubric.yaml, providers (LLM, heuristic)
+  demo/calls/               six realistic CallRecords for a zero-key demo
+frontend/                 Next.js app (App Router)
+  app/                      / (Live), /calls, /calls/[id], /unlock, /api/token, Server Actions
+  components/               live/ (room, orb, transcript), calls/ (list), call/ (scorecard, transcript)
+  lib/                      server-only analyzer client, passcode gate, types mirroring the analyzer
+docs/                     architecture, trade-offs, primer, prompts, tools, evals, analyzer, frontend
+.github/workflows/        ci.yml (lint, tests, prompt render, analyzer, frontend) and evals.yml
 ```
 
 ## Documentation
@@ -220,12 +303,16 @@ docs/                     architecture, trade-offs, primer, prompts, tools, eval
 | [Modular prompts](docs/modular-prompts.md) | The prompt workflow: manifest, modules, fingerprints, writing guidance |
 | [Tools](docs/tools.md) | Where tools run, the registry, providers, and an add-a-tool tutorial |
 | [Evals](docs/evals.md) | Eval tiers, suites, change-impact detection, CI workflows, best practices |
+| [Call Analyzer](docs/call-analyzer.md) | Post-call grading: rubric, LLM judge vs code, evidence checks, privacy, scaling, alternatives |
+| [Frontend](docs/frontend.md) | The Live, Calls and Call detail views, the server/client boundary, the passcode gate |
 
 ## Configuration
 
-All configuration is environment variables. See [`.env.example`](.env.example) (agent) and
-[`frontend/.env.example`](frontend/.env.example) (web client); the full reference is in
-[`docs/architecture.md`](docs/architecture.md#7-configuration-reference). The main settings:
+All configuration is environment variables. See [`.env.example`](.env.example) (agent),
+[`frontend/.env.example`](frontend/.env.example) (web client) and
+[`analyzer/.env.example`](analyzer/.env.example) (Call Analyzer); the full reference is in
+[`docs/architecture.md`](docs/architecture.md#7-configuration-reference) and
+[`analyzer/README.md`](analyzer/README.md#configuration). The main settings:
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -235,6 +322,9 @@ All configuration is environment variables. See [`.env.example`](.env.example) (
 | `AGENT_PROFILE` | `concierge` | Which profile in `prompts/manifest.yaml` to run |
 | `RESTAURANT_PROVIDER` | `mock` | `mock` (deterministic) or `opentable` (partner credentials) |
 | `LIVEKIT_AGENT_NAME` | `gpt-live-agent` | Explicit-dispatch name; the frontend requests the same one |
+| `CALL_RECORDING_ENABLED` | `true` | Build and export a call record at the end of every session |
+| `CALL_ANALYZER_URL` / `CALL_ANALYZER_TOKEN` | unset | Agent: where to post records (unset: write to `.call-records/`). Frontend: where the Calls pages read. Analyzer: the token it requires. Same token everywhere |
+| `DEMO_PASSCODE` | unset | Frontend only: optional passcode gate for the token route and the Calls pages |
 
 ## Caveats
 
@@ -243,8 +333,17 @@ All configuration is environment variables. See [`.env.example`](.env.example) (
 - **OpenTable's API is partner-gated.** The client shows the real integration concerns (OAuth2
   client credentials, token caching, timeouts, error mapping), but its endpoints and fields are
   placeholders to adapt once you have partner access. The mock provider is the default.
-- **The evals are designed and tested offline but haven't been run against live models** in this
-  repo. Expect to tune voice-runner timing and pricing estimates on the first real run.
+- **The evals and the Call Analyzer's LLM judge are tested offline but haven't been run against
+  live models** in this repo. Expect to tune voice-runner timing, pricing estimates and the
+  judge's token limits on the first real run.
+- **Zero-key call grading is a smoke test.** Without an API key the analyzer uses a keyword and
+  metrics heuristic, labeled as such in the UI. It can't tell a made-up fact from a real one.
+- **Public deploys need a rate limit at the edge.** Every `POST /api/token` starts a paid
+  GPT-Live session. `DEMO_PASSCODE` is a speed bump, not auth; put a rate limit in front of
+  `/api/token` and `/unlock` at your host or proxy, and keep the analyzer on a private network.
+- **CI actions still run on Node 20.** GitHub is retiring the Node 20 runtime for JavaScript
+  actions. The workflows pin actions by SHA; bump them to their Node 24 majors (and re-pin)
+  after the first real run.
 
 ## License
 

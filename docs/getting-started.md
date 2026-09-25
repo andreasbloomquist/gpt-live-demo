@@ -1,10 +1,12 @@
 # Getting started
 
-From a fresh clone to talking with the agent: first in your terminal, then in the browser. At the
-end there's a checklist for adopting GPT-Live in your *own* LiveKit agent.
+From a fresh clone to talking with the agent: first in your terminal, then in the browser, and
+then reading the graded call afterwards. At the end there's a checklist for adopting GPT-Live in
+your *own* LiveKit agent.
 
 > Related: [`architecture.md`](architecture.md) (what you're running),
-> [`modular-prompts.md`](modular-prompts.md), [`tools.md`](tools.md), [`evals.md`](evals.md).
+> [`modular-prompts.md`](modular-prompts.md), [`tools.md`](tools.md), [`evals.md`](evals.md),
+> [`call-analyzer.md`](call-analyzer.md), [`frontend.md`](frontend.md).
 
 ---
 
@@ -14,15 +16,16 @@ end there's a checklist for adopting GPT-Live in your *own* LiveKit agent.
 |---|---|
 | Python | 3.10+ (developed on 3.11). |
 | [uv](https://docs.astral.sh/uv/) | Manages the virtualenv and lockfile. Every command below is `uv run ...`. |
-| Node.js | 20+, only for the web frontend. |
+| Node.js | 20+, only for the web frontend (CI builds it on 22). |
 | A LiveKit server | A [LiveKit Cloud](https://cloud.livekit.io) project (free tier is fine), **or** a local `livekit-server --dev`. Not needed for console mode. |
 | LiveKit CLI (`lk`) | Optional but recommended. LiveKit Agents 1.8 steers the dev loop toward `lk agent ...`, and it's how you deploy to LiveKit Cloud. |
 | OpenAI API key | With access to **GPT-Live** (`gpt-live-1`) and the backend Responses model (`gpt-5.6-luna` by default). |
 | A microphone | For console mode and the browser. Headphones help, since speakers feeding back into the mic confuse any full-duplex model. |
 
 Cost: every connected session bills GPT-Live voice time (public pricing at time of writing is on
-the order of $0.05/min, billed per second) plus backend tokens and web-search calls. Unit tests
-and the prompt CLI cost nothing. See [primer §5](gpt-live-primer.md#pricing).
+the order of $0.05/min, billed per second) plus backend tokens and web-search calls. Unit tests,
+the prompt CLI and the Call Analyzer's offline mode cost nothing; with an API key, the analyzer's
+judge adds one small-model request per call. See [primer §5](gpt-live-primer.md#pricing).
 
 ---
 
@@ -35,7 +38,8 @@ uv sync                     # creates .venv, installs the agent + dev tools (pyt
 ```
 
 The eval runners need the `openai` SDK, which lives in a separate dependency group:
-`uv sync --group evals`. See [`evals.md`](evals.md).
+`uv sync --group evals`. See [`evals.md`](evals.md). The Call Analyzer in `analyzer/` is a
+separate uv project with its own virtualenv; you install it in [step 6](#6-run-the-call-analyzer-free-no-keys).
 
 ## 2. Configure
 
@@ -80,7 +84,9 @@ uv run ruff check .
 ```
 
 The agent tests cover prompt composition and validation, the tool registry, the restaurant tool's
-validation and mock data, and the OpenTable client against a mocked HTTP transport.
+validation and mock data, the OpenTable client against a mocked HTTP transport, call-record
+building and export, and the worker's startup checks. The analyzer has its own suite:
+`cd analyzer && uv run pytest -q`.
 
 ## 5. Talk to it in your terminal (console mode)
 
@@ -111,9 +117,61 @@ prints a deprecation warning. It still works. The forward-looking equivalent is 
 in `agent/voice_agent/main.py`. Check `lk agent --help` for how your CLI version takes the
 entrypoint path.
 
-## 6. Run it as a worker and talk from the browser
+## 6. Run the Call Analyzer (free, no keys)
 
-### 6a. Start the worker
+The analyzer stores every call the agent handles and grades it. It backs the **Calls** pages.
+Start it before the worker so the worker has somewhere to send calls. In its own terminal:
+
+```bash
+cd analyzer
+uv sync                                   # creates analyzer/.venv
+cp .env.example .env                      # placeholder token; no API key -> heuristic grading
+uv run python -m call_analyzer seed       # load and grade the six demo calls
+uv run python -m call_analyzer serve      # http://127.0.0.1:8080
+```
+
+`seed` prints what it loaded and a score per call:
+
+```text
+created   gpt-live-4c1e9a07-d6f56f89  (01-available-state-bird.json)
+...
+Analyzing with provider=heuristic model=None ...
+
+call_id                          status   score  outcome
+gpt-live-4c1e9a07-d6f56f89       done        95  resolved
+gpt-live-9b27d3f1-a3c6bb5a       done        95  resolved
+gpt-live-e5a0c6b2-5b95b546       done        61  resolved
+...
+```
+
+`provider=heuristic` means no API key was found, so a keyword-and-metrics heuristic did the
+grading. To use the LLM judge, set `ANALYZER_API_KEY` in `analyzer/.env` (or have
+`OPENAI_API_KEY` in the environment; `ANALYZER_PROVIDER=auto` picks it up) and re-grade with
+`seed --reanalyze`. The heuristic can't judge meaning; see
+[`call-analyzer.md` §9](call-analyzer.md#9-providers-an-llm-judge-or-an-offline-heuristic).
+
+`serve` refuses to start without `CALL_ANALYZER_TOKEN` (at least 16 characters). The
+placeholder in `.env.example` works on a laptop, and the analyzer logs a warning about it; for
+anything else use `openssl rand -hex 32`. Check it's up:
+
+```bash
+curl -s http://127.0.0.1:8080/healthz              # {"status":"ok"}
+```
+
+Now tell the **agent** where to send calls. In the repo-root `.env`, uncomment and set:
+
+```dotenv
+CALL_ANALYZER_URL=http://localhost:8080
+CALL_ANALYZER_TOKEN=change-me-shared-secret     # the same value as analyzer/.env
+```
+
+Without `CALL_ANALYZER_URL`, the agent still records every call, to `.call-records/<call_id>.json`
+in the directory you start it from. Load those later with
+`uv run python -m call_analyzer seed --dir ../.call-records` (from `analyzer/`).
+
+## 7. Run it as a worker and talk from the browser
+
+### 7a. Start the worker
 
 ```bash
 uv run voice-agent dev      # or: lk agent dev
@@ -126,7 +184,12 @@ Python CLI's `dev` no longer hot-reloads; use `lk agent dev` if you want reload.
 A third, CLI-free way to run the same worker:
 `uv run python -m livekit.agents start agent/voice_agent/main.py --dev`.
 
-### 6b. Start the frontend
+The worker checks its configuration before it registers. If something is wrong (no
+`OPENAI_API_KEY`, an unknown `AGENT_TIMEZONE`, `CALL_ANALYZER_URL` without a token), it exits
+straight away with one line, `voice-agent: invalid configuration, not starting: <reason>`, instead
+of taking calls it can't serve.
+
+### 7b. Start the frontend
 
 ```bash
 cd frontend
@@ -142,10 +205,14 @@ LIVEKIT_URL=wss://your-project.livekit.cloud
 LIVEKIT_API_KEY=your_livekit_api_key
 LIVEKIT_API_SECRET=your_livekit_api_secret
 LIVEKIT_AGENT_NAME=gpt-live-agent
+
+CALL_ANALYZER_URL=http://localhost:8080
+CALL_ANALYZER_TOKEN=change-me-shared-secret     # the same value as analyzer/.env
+DEMO_PASSCODE=                                  # optional; leave empty on localhost
 ```
 
 `frontend/.env.example` already ships with `LIVEKIT_AGENT_NAME=gpt-live-agent`, matching the
-worker's default. If you switch the worker to automatic dispatch (`LIVEKIT_AGENT_NAME=` empty),
+worker's default, and the local analyzer values. If you switch the worker to automatic dispatch (`LIVEKIT_AGENT_NAME=` empty),
 clear it on the frontend too. The two settings must agree.
 
 ```bash
@@ -155,7 +222,20 @@ npm run dev                 # http://localhost:3000
 Click **Start conversation** and allow the microphone. The transcript fills in live from the
 `lk.transcription` streams: GPT-Live transcribes the caller itself, and there's no separate STT.
 
-### 6c. Or skip the frontend: Agents Playground
+### 7c. See your calls
+
+Open **Calls** (http://localhost:3000/calls). The six demo calls are there already. Hang up a
+call on the Live page and it appears at the top within a few seconds: the worker posts the
+record when the session closes, the analyzer grades it in the background, and the call shows
+*Queued*, then *Analyzing*, and the page refreshes itself until the scorecard is ready. Open a call for the scorecard,
+flags, metrics, caller sentiment and the transcript with per-turn transcription confidence.
+**Re-analyze** grades it again (useful after you add an API key or change the rubric).
+
+In the worker log, a successful export is an INFO line `call record exported` with
+`destination: analyzer`. A WARNING with a file path means the analyzer didn't take the record;
+the `detail` field says why.
+
+### 7d. Or skip the frontend: Agents Playground
 
 LiveKit's hosted [Agents Playground](https://agents-playground.livekit.io) can connect to your
 Cloud project and talk to the running worker. Because this worker uses explicit dispatch, the
@@ -163,7 +243,7 @@ Playground session must request the agent `gpt-live-agent`. If your Playground v
 agent-name setting, run the worker with `LIVEKIT_AGENT_NAME=` (empty) while testing, so it joins
 every new room.
 
-### 6d. Local LiveKit server instead of Cloud
+### 7e. Local LiveKit server instead of Cloud
 
 ```bash
 livekit-server --dev        # ws://localhost:7880, API key "devkey", secret "secret"
@@ -171,7 +251,7 @@ livekit-server --dev        # ws://localhost:7880, API key "devkey", secret "sec
 
 Put those values in both `.env` and `frontend/.env.local`. Everything else is identical.
 
-## 7. Switch on the real reservation provider (optional)
+## 8. Switch on the real reservation provider (optional)
 
 OpenTable's API requires an approved **partner agreement**. The endpoints in
 `agent/voice_agent/tools/restaurants/opentable.py` are illustrative placeholders that you adapt
@@ -187,7 +267,7 @@ OPENTABLE_CLIENT_SECRET=your_opentable_client_secret
 
 Keep `RESTAURANT_PROVIDER=mock` for evals. The mock is deterministic, and the live API isn't.
 
-## 8. Deploy
+## 9. Deploy
 
 This repo doesn't ship deployment manifests. These are the parts that matter, and what we're
 confident about.
@@ -197,7 +277,12 @@ confident about.
 - The **agent worker** is a long-running Python process that dials *out* to LiveKit. It needs no
   inbound ports or public URL, and scales horizontally by adding processes.
 - The **frontend** is an ordinary Next.js app (`npm run build && npm start`, or any Next.js
-  host). Its only secret-bearing part is the `/api/token` route.
+  host with a Node server). Its secrets (LiveKit, analyzer token, passcode) are read only on the
+  server: in the token route, the Calls pages and the Server Actions.
+- The **Call Analyzer** ships its own image (`analyzer/Dockerfile`: non-root, `/data` volume,
+  healthcheck). Run **one** container per database, because the worker is in-process and SQLite
+  has a single writer. Keep it on a private network: only the agent workers and the frontend's
+  server need to reach it. See [`analyzer/README.md`](../analyzer/README.md#docker).
 
 **LiveKit Cloud agent hosting.** LiveKit Cloud can build and run the worker for you from a
 Dockerfile, driven by the LiveKit CLI (`lk agent create` for the first deploy, then
@@ -232,7 +317,11 @@ CMD ["uv", "run", "--no-sync", "voice-agent", "start"]
 
 **Things to decide before real traffic:**
 
-- auth and rate limiting on `/api/token`, since every token can start a paid session;
+- auth and rate limiting on `/api/token`, since every token can start a paid session.
+  `DEMO_PASSCODE` is a speed bump for a demo URL; the rate limit belongs at your host or proxy
+  ([`frontend.md`](frontend.md#demo_passcode-and-why-it-isnt-enough));
+- a retention and deletion policy for transcripts in the analyzer (and any `.call-records/`
+  fallback files on workers), and a data-processing agreement with your judge provider;
 - `max_session_duration` and an idle policy (per-minute billing);
 - where logs go (the prompt fingerprint is on every line);
 - which evals gate a deploy ([`evals.md`](evals.md)).
@@ -245,17 +334,24 @@ CMD ["uv", "run", "--no-sync", "voice-agent", "start"]
 |---|---|---|
 | Browser stuck on "Waiting for agent…" | Dispatch mismatch: the frontend's `LIVEKIT_AGENT_NAME` is empty while the worker registered `gpt-live-agent`, or the reverse. | Set `LIVEKIT_AGENT_NAME=gpt-live-agent` in `frontend/.env.local` (or empty on both sides). Restart both. |
 | Same, and the names match | The worker isn't running, or it's connected to a different LiveKit project or URL. | Check the worker log for a successful registration. Compare `LIVEKIT_URL` and keys in both env files. |
-| Worker log shows the job starting and then failing; the agent never speaks | `ConfigurationError: OPENAI_API_KEY is not set` | Set it in `.env` (the worker reads `.env` from the directory you start it in). |
-| `ConfigurationError: RESTAURANT_PROVIDER=opentable needs OPENTABLE_CLIENT_ID ...` | OpenTable selected without credentials. | Add the credentials or set `RESTAURANT_PROVIDER=mock`. |
+| Worker exits at startup with `voice-agent: invalid configuration, not starting: …` | The preflight check found a problem before registering with LiveKit. The reason follows the colon: `OPENAI_API_KEY is not set`, `CALL_ANALYZER_URL is set but CALL_ANALYZER_TOKEN is not`, an unknown `AGENT_TIMEZONE`, a bad profile or tool. (A long asyncio traceback may follow; the first line is the one that matters.) | Fix that setting in `.env` (the worker reads `.env` from the directory you start it in) and start again. |
+| `... RESTAURANT_PROVIDER=opentable needs OPENTABLE_CLIENT_ID ...` at startup | OpenTable selected without credentials. | Add the credentials or set `RESTAURANT_PROVIDER=mock`. |
 | `PromptCompositionError: ...` at startup or in tests | A module or manifest edit broke a rule (undeclared variable, wrong target, missing tool). | Run `uv run python -m voice_agent.prompts render <profile>`; the message names the module and rule. |
 | `UnknownToolError: unknown tool 'x'` | A profile lists a tool that isn't in `TOOL_REGISTRY`. | Register it ([`tools.md` §10](tools.md#10-tutorial-add-your-own-custom-tool)) or fix the typo. |
 | OpenAI error such as `invalid_api_key`, `insufficient_quota`, or model not found | The key lacks GPT-Live or backend-model access, or billing limits were hit. The plugin doesn't retry fatal errors. | Check the key's project, model access, and billing in the OpenAI dashboard. |
-| Agent says a past date or the wrong weekday | `AGENT_TIMEZONE` is unset or wrong, so "today" is off by a day near midnight. An unknown zone falls back to UTC with a warning. | Set `AGENT_TIMEZONE` to the callers' IANA zone. Check `today` in the `composed prompts` log line. |
+| Agent says a past date or the wrong weekday | `AGENT_TIMEZONE` is set to the wrong (valid) zone, so "today" is off by a day near midnight. | Set `AGENT_TIMEZONE` to the callers' IANA zone. Check `today` in the `composed prompts` log line. |
 | Echo, or the agent interrupting itself | Speakers feeding into the mic. A full-duplex model hears its own voice. | Use headphones. Browsers apply echo cancellation, but laptop console mode may not. |
 | Silence after the caller speaks, then a late answer | A slow tool, or high backend reasoning effort. | Keep `GPT_LIVE_BACKEND_REASONING_EFFORT=low`. Check tool timeouts. Look for provider warnings in the worker log. |
 | `DeprecationWarning: the built-in Python CLI is deprecated` | Expected with `uv run voice-agent ...` on LiveKit Agents 1.8. | Harmless. Switch to `lk agent ...` when convenient. |
 | `RuntimeError` mentioning text simulation / `lk agent simulate audio` | A test tried to run GPT-Live in LiveKit's text mode. A duplex model is audio-only. | Test the backend brain as text instead ([`evals.md`](evals.md)). |
 | Frontend `500: Missing environment variable(s)` | `frontend/.env.local` missing or incomplete. | Copy `frontend/.env.example` and fill in the three `LIVEKIT_*` values. |
+| Worker log: `call record exported` at WARNING with `analyzer returned HTTP 401` | The agent's `CALL_ANALYZER_TOKEN` doesn't match the analyzer's. The record was saved to `.call-records/`. | Use the same token in `.env` and `analyzer/.env`, restart both, then ingest the saved files with `seed --dir ../.call-records`. |
+| Calls page: "The call analyzer rejected this app's credentials" | The frontend's `CALL_ANALYZER_TOKEN` doesn't match the analyzer's (the analyzer returned 401). | Use the same token in `frontend/.env.local` and `analyzer/.env`, then restart `npm run dev` (Next.js reads env files at startup). |
+| Calls page: "The call analyzer isn't configured" or "Couldn't reach the call analyzer" | `CALL_ANALYZER_URL` / `CALL_ANALYZER_TOKEN` missing in `frontend/.env.local`, or `serve` isn't running. | Set both, and check `curl http://127.0.0.1:8080/healthz`. |
+| `serve` exits with `Configuration error: CALL_ANALYZER_TOKEN is not set` | No token in `analyzer/.env` or the environment. | `cp .env.example .env` in `analyzer/`, or export a token of 16+ characters. |
+| Calls page shows "No calls yet" although you seeded | `seed` and `serve` used different databases: `ANALYZER_DB_PATH` defaults to `./data/calls.db`, relative to the directory you run the command in. | Run both from `analyzer/` (or set an absolute `ANALYZER_DB_PATH`). |
+| Your own calls don't show up | The worker has no `CALL_ANALYZER_URL` (records go to `.call-records/`), recording is off (`CALL_RECORDING_ENABLED=false`), or the call never had a conversation turn (not recorded). | Check the worker log for `call record exported` and its `destination`. Set the URL and token in the repo-root `.env` and restart the worker. |
+| A call stays *Queued* or *Analyzing*, or shows *Analysis failed* | The judge is slow or failing: rate limits back off and retry; a bad key, unknown model or wrong `ANALYZER_BASE_URL` fails at once with the reason. | Read the error on the call page and the analyzer log, fix the setting, then **Re-analyze**. |
 
 ---
 
