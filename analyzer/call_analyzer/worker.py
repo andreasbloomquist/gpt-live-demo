@@ -122,7 +122,8 @@ class AnalysisWorker:
             )
         except asyncio.TimeoutError:
             await self._handle_failure(
-                job, ProviderError(f"analysis timed out after {self._job_timeout_s:g}s", retryable=True)
+                job,
+                ProviderError(f"analysis timed out after {self._job_timeout_s:g}s", retryable=True),
             )
         except ProviderError as exc:
             await self._handle_failure(job, exc)

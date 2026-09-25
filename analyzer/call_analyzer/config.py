@@ -81,7 +81,9 @@ class Settings(BaseSettings):
     concurrency: int = Field(default=2, ge=1, le=32, validation_alias="ANALYZER_CONCURRENCY")
     # Job-level attempts (each may include SDK retries). Also bounds crash loops on restart.
     max_attempts: int = Field(default=3, ge=1, le=10, validation_alias="ANALYZER_MAX_ATTEMPTS")
-    retry_base_s: float = Field(default=30.0, ge=0, le=3600, validation_alias="ANALYZER_RETRY_BASE_S")
+    retry_base_s: float = Field(
+        default=30.0, ge=0, le=3600, validation_alias="ANALYZER_RETRY_BASE_S"
+    )
     job_timeout_s: float = Field(
         default=300.0, gt=0, le=3600, validation_alias="ANALYZER_JOB_TIMEOUT_S"
     )

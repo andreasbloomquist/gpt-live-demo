@@ -40,9 +40,12 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 export async function isUnlocked(): Promise<boolean> {
+  // Read the cookie even when no passcode is set: that marks every gated page as
+  // request-time, so a page built without DEMO_PASSCODE isn't prerendered as "open"
+  // and then served that way after DEMO_PASSCODE is set at runtime.
+  const value = (await cookies()).get(COOKIE)?.value;
   const secret = passcode();
   if (secret === null) return true;
-  const value = (await cookies()).get(COOKIE)?.value;
   return value !== undefined && safeEqual(value, unlockToken(secret));
 }
 

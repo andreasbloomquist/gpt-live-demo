@@ -7,7 +7,13 @@ from .base import AnalysisProvider, ProviderError
 from .heuristic import HeuristicProvider
 from .openai_provider import OpenAIProvider
 
-__all__ = ["AnalysisProvider", "HeuristicProvider", "OpenAIProvider", "ProviderError", "build_provider"]
+__all__ = [
+    "AnalysisProvider",
+    "HeuristicProvider",
+    "OpenAIProvider",
+    "ProviderError",
+    "build_provider",
+]
 
 
 def build_provider(settings: Settings) -> AnalysisProvider:

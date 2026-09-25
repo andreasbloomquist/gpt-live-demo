@@ -37,6 +37,16 @@ def _describe(exc: openai.APIStatusError) -> str:
     return f"{type(exc).__name__} (HTTP {exc.status_code}): {message[:_MAX_ERROR_CHARS]}"
 
 
+def _retry_after(exc: openai.APIStatusError) -> float | None:
+    """Seconds from a ``Retry-After`` header, so the worker's backoff respects the server."""
+    value = exc.response.headers.get("retry-after")
+    try:
+        seconds = float(value) if value is not None else None
+    except ValueError:
+        return None  # HTTP-date form; fall back to our own backoff
+    return seconds if seconds is not None and 0 <= seconds <= 3600 else None
+
+
 class OpenAIProvider:
     name: ProviderName = "openai"
 
@@ -99,7 +109,9 @@ class OpenAIProvider:
                 **extra,
             )
         except openai.RateLimitError as exc:
-            raise ProviderError(_describe(exc), retryable=True) from exc
+            raise ProviderError(
+                _describe(exc), retryable=True, retry_after_s=_retry_after(exc)
+            ) from exc
         except openai.APIStatusError as exc:
             # 408/409/5xx are transient; other 4xx (bad key, unknown model, bad params) are not.
             retryable = exc.status_code in (408, 409) or exc.status_code >= 500
@@ -116,7 +128,9 @@ class OpenAIProvider:
                 retryable=False,
             ) from exc
         except openai.ContentFilterFinishReasonError as exc:
-            raise ProviderError("LLM answer was blocked by a content filter", retryable=False) from exc
+            raise ProviderError(
+                "LLM answer was blocked by a content filter", retryable=False
+            ) from exc
         except pydantic.ValidationError as exc:
             # The server ignored or doesn't support strict JSON schema. Models are stochastic, so
             # a later attempt may well succeed.

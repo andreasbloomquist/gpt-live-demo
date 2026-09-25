@@ -17,7 +17,7 @@ export function MetricsRow({ m }: { m: Metrics }) {
           </span>
         </dd>
       </div>
-      <Metric label="Interruptions" value={m.interruptions} sub="Ava talked over / was cut off" />
+      <Metric label="Interruptions" value={m.interruptions} sub="Turns cut off mid-speech" />
       <Metric
         label="Tool calls"
         value={m.tool_calls}

@@ -132,7 +132,9 @@ def _clamp(score: int) -> int:
 
 
 def _dim(score: int, rationale: str, evidence: list[EvidenceDraft]) -> DimensionDraft:
-    return DimensionDraft(score=_clamp(score), rationale=f"Heuristic: {rationale}", evidence=evidence)
+    return DimensionDraft(
+        score=_clamp(score), rationale=f"Heuristic: {rationale}", evidence=evidence
+    )
 
 
 def _json_object(text: str | None) -> dict[str, object]:
@@ -263,22 +265,34 @@ def _outcome(s: _Signals) -> tuple[OutcomeStatus, str]:
             return "resolved", "The requested time was open; the caller was told to finish booking."
         if status == "alternatives":
             if s.positive_close:
-                return "resolved", "The requested time was taken; the caller accepted an alternative."
+                return (
+                    "resolved",
+                    "Requested time taken; the caller accepted an alternative.",
+                )
             return "partially_resolved", "Alternatives were offered but no choice was confirmed."
         if "directly with the restaurant" in note:
-            return "partially_resolved", "Party too large to check online; caller sent to the restaurant."
+            return (
+                "partially_resolved",
+                "Party too large to book online; caller sent to the restaurant.",
+            )
         return "unresolved", f"No table was available ({status})."
     if s.searches:
         if all(c.is_error for c in s.searches):
             return "unresolved", "The web search failed, so the question went unanswered."
         if s.positive_close:
-            return "resolved", "The question was answered from a web search and the caller was satisfied."
+            return (
+                "resolved",
+                "Answered from a web search; the caller was satisfied.",
+            )
         return "partially_resolved", "A web search was made; the caller's reaction was unclear."
     if s.frustration or s.escalation:
         return "unresolved", "No lookup was made and the caller was frustrated."
     if s.positive_close:
         return "resolved", "The caller ended the call satisfied."
-    return "partially_resolved", "No lookup was made; the outcome can't be determined from keywords."
+    return (
+        "partially_resolved",
+        "No lookup was made; outcome unclear from keywords.",
+    )
 
 
 def _scores(s: _Signals, metrics: Metrics, outcome: OutcomeStatus) -> ScoresDraft:
@@ -443,7 +457,9 @@ def _summary(s: _Signals, intent: str, outcome_reason: str, metrics: Metrics) ->
         issues.append("caller frustration")
     if metrics.low_confidence_turns:
         issues.append(f"{metrics.low_confidence_turns} low-confidence transcript turn(s)")
-    notable = f"Notable: {', '.join(issues)}." if issues else "No issues detected by keyword checks."
+    notable = (
+        f"Notable: {', '.join(issues)}." if issues else "No issues detected by keyword checks."
+    )
     return f"Caller intent: {intent}. {outcome_reason} {notable}"
 
 

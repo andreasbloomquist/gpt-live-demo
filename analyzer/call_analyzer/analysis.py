@@ -121,7 +121,9 @@ def validate_draft(
         evidence = _valid_evidence(dim_draft, texts)
         dropped_evidence += len(dim_draft.evidence) - len(evidence)
         scores[dim] = DimensionScore(
-            score=score, rationale=_clip(dim_draft.rationale, MAX_RATIONALE_CHARS), evidence=evidence
+            score=score,
+            rationale=_clip(dim_draft.rationale, MAX_RATIONALE_CHARS),
+            evidence=evidence,
         )
     if dropped_evidence:
         logger.info(
@@ -146,10 +148,10 @@ def validate_draft(
     user_turn_order = {t.id: i for i, t in enumerate(record.turns) if t.role == "user"}
     sentiment: dict[str, SentimentPoint] = {}
     for point in draft.sentiment:
-        if point.turn_id in user_turn_order and point.turn_id not in sentiment:
-            if math.isfinite(point.value):
-                value = max(-1.0, min(1.0, point.value))
-                sentiment[point.turn_id] = SentimentPoint(turn_id=point.turn_id, value=value)
+        known = point.turn_id in user_turn_order and point.turn_id not in sentiment
+        if known and math.isfinite(point.value):
+            value = max(-1.0, min(1.0, point.value))
+            sentiment[point.turn_id] = SentimentPoint(turn_id=point.turn_id, value=value)
     ordered = sorted(sentiment.values(), key=lambda p: user_turn_order[p.turn_id])
     return scores, flags, ordered
 
@@ -160,7 +162,9 @@ def deterministic_flags(record: CallRecord) -> list[Flag]:
         Flag(
             type="tool_failure",
             turn_id=None,
-            detail=_clip(f"{call.name} failed: {call.output or 'no output'}", MAX_FLAG_DETAIL_CHARS),
+            detail=_clip(
+                f"{call.name} failed: {call.output or 'no output'}", MAX_FLAG_DETAIL_CHARS
+            ),
         )
         for call in record.tool_calls
         if call.is_error

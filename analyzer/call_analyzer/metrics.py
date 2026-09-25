@@ -36,7 +36,7 @@ def _talk_ratio_agent(turns: list[Turn]) -> float:
     measure), else by word count (a close proxy when the agent didn't record timestamps)."""
     durations = [_speaking_seconds(t) for t in turns]
     if turns and all(d is not None for d in durations):
-        agent = sum(d for t, d in zip(turns, durations) if t.role == "assistant" and d)
+        agent = sum(d for t, d in zip(turns, durations, strict=True) if t.role == "assistant" and d)
         total = sum(d for d in durations if d)
         if total > 0:
             return round(agent / total, 3)
@@ -59,7 +59,9 @@ def compute_metrics(record: CallRecord) -> Metrics:
         interruptions=sum(1 for t in turns if t.interrupted),
         tool_calls=len(record.tool_calls),
         tool_errors=sum(1 for c in record.tool_calls if c.is_error),
-        avg_agent_words_per_turn=round(sum(agent_words) / len(agent_words), 1) if agent_words else 0.0,
+        avg_agent_words_per_turn=round(sum(agent_words) / len(agent_words), 1)
+        if agent_words
+        else 0.0,
         mean_transcript_confidence=(
             round(sum(confidences) / len(confidences), 3) if confidences else None
         ),

@@ -7,6 +7,7 @@
  * (no URLs, tokens, or upstream bodies). Details go to the server log instead.
  */
 import "server-only";
+import { connection } from "next/server";
 import type {
   Analysis,
   CallDetail,
@@ -77,6 +78,8 @@ function config(): { base: string; token: string } {
 }
 
 async function request(path: string, init: { method?: "GET" | "POST" } = {}): Promise<unknown> {
+  // Analyzer data is live: never let a page that reads it be prerendered at build time.
+  await connection();
   const { base, token } = config();
   const method = init.method ?? "GET";
   let res: Response;
