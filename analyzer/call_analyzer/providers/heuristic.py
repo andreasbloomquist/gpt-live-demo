@@ -475,11 +475,12 @@ def _sentiment(s: _Signals) -> list[SentimentDraft]:
     return points
 
 
-# Index = hour on a 12-hour clock (0 and 12 are both "twelve").
+# Index = hour on a 12-hour clock (hour % 12).
 _NUMBERS = (
-    "twelve", "one", "two", "three", "four", "five", "six",
-    "seven", "eight", "nine", "ten", "eleven", "twelve",
-)  # fmt: skip_MINUTE_WORDS = {
+    "twelve", "one", "two", "three", "four", "five",
+    "six", "seven", "eight", "nine", "ten", "eleven",
+)  # fmt: skip
+_MINUTE_WORDS = {
     0: ["o'clock", ""],
     15: ["fifteen"],
     30: ["thirty"],

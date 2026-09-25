@@ -204,7 +204,7 @@ curl -s "$URL/v1/calls?limit=2" -H "$AUTH"
       "turns": 15,
       "status": "done",
       "caller_intent": "Table for 3 at Kokkari (Thu Sep 24, 7:30 PM)",
-      "summary": "The caller wanted a table for 3 at Kokkari (Thu Sep 24, 7:30 PM). The requested time was open; the caller was told to finish booking. Notable: 2 low-confidence transcript turn(s).",
+      "summary": "Kokkari had 7:30 open on Thursday for 3; the agent made clear nothing was booked and pointed the caller to the restaurant or the app.",
       "outcome": {"status": "resolved", "reason": "The requested time was open; the caller was told to finish booking."},
       "overall_score": 95,
       "analyzer": {"provider": "heuristic", "model": null, "rubric_version": "1"}
@@ -216,7 +216,7 @@ curl -s "$URL/v1/calls?limit=2" -H "$AUTH"
       "turns": 8,
       "status": "done",
       "caller_intent": "Table for 12 at Foreign Cinema (Sat Oct 3, 7:00 PM)",
-      "summary": "The caller wanted a table for 12 at Foreign Cinema (Sat Oct 3, 7:00 PM). Party too large to book online; caller sent to the restaurant. No issues detected by keyword checks.",
+      "summary": "Foreign Cinema doesn't take parties of 12 online, so the agent sent the caller to the restaurant directly.",
       "outcome": {"status": "partially_resolved", "reason": "Party too large to book online; caller sent to the restaurant."},
       "overall_score": 79,
       "analyzer": {"provider": "heuristic", "model": null, "rubric_version": "1"}
@@ -241,8 +241,8 @@ Returns `{"record": CallRecord, "analysis": Analysis}`. Real output for the frus
   "status": "done",
   "error": null,
   "analyzer": {"provider": "heuristic", "model": null, "rubric_version": "1"},
-  "created_at": "2026-09-25T17:48:06.296017Z",
-  "summary": "The caller wanted a table for 2 at Zuni Cafe (Wed Sep 23, 7:30 PM). The requested time was open; the caller was told to finish booking. Notable: 2 interruption(s), 1 failed tool call(s), caller frustration, 1 low-confidence transcript turn(s).",
+  "created_at": "2026-09-25T17:55:56.941359Z",
+  "summary": "After a failed first check, Zuni Cafe had 7:30 open on Wednesday for 2; the agent made clear nothing was booked and pointed the caller to the restaurant or the app. The caller grew frustrated after 2 interruptions.",
   "caller_intent": "Table for 2 at Zuni Cafe (Wed Sep 23, 7:30 PM)",
   "outcome": {"status": "resolved", "reason": "The requested time was open; the caller was told to finish booking."},
   "overall_score": 61,
@@ -423,7 +423,10 @@ messages never contain secrets or transcript text.
 Built from the metrics, the tool results, and small phrase lexicons (frustration, gratitude,
 escalation requests, empathy, "I've booked..." claims, requests for card details, repeated
 requests). Every rationale starts with `Heuristic:` and `analyzer.provider` is `"heuristic"` so
-the UI can label it. It's good at facts (did the check find a table? did a tool fail? was the
+the UI can label it. Its `summary` is one or two sentences built from the tool outcomes (for
+example "Nopa was full at 7:00, so the agent offered 6:45, 7:15 or 6:30, and the caller took
+7:15."); it never repeats `caller_intent`, which the UI already shows as the title, and leaves
+issue lists to `flags` and `metrics`. It's good at facts (did the check find a table? did a tool fail? was the
 agent interrupted?) and useless at meaning: it can't see that the free-parking answer in demo call
 04 was made up, or that a polite caller left unhappy. It exists so the pipeline works with zero
 keys and as a sanity baseline for the LLM.
