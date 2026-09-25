@@ -12,8 +12,9 @@ from __future__ import annotations
 
 from functools import lru_cache
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ReasoningEffort = Literal["minimal", "low", "medium", "high"]
@@ -67,7 +68,22 @@ class Settings(BaseSettings):
     opentable_timeout_seconds: float = Field(default=6.0, gt=0)
 
     # --- Misc ----------------------------------------------------------------------------
-    log_level: str = "INFO"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+
+    @field_validator("agent_timezone")
+    @classmethod
+    def _known_timezone(cls, value: str) -> str:
+        # Fail at startup, not by quietly resolving "tomorrow" against UTC on a live call.
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"AGENT_TIMEZONE {value!r} is not a known IANA timezone") from exc
+        return value
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def _upper_log_level(cls, value: object) -> object:
+        return value.upper() if isinstance(value, str) else value
 
     def require_openai_api_key(self) -> str:
         """Return the OpenAI key or fail with an actionable message."""

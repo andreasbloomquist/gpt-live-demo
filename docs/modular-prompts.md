@@ -86,7 +86,7 @@ flowchart LR
     Comp --> BB["backend_instructions"]
     Comp --> TT["tools"]
     Comp --> GG["greeting"]
-    Comp --> FF["fingerprint<br/>ab377d9db44f"]
+    Comp --> FF["fingerprint<br/>3a38d1b337b0"]
 
     VB --> GL["GPT-Live voice model"]
     BB --> RM["Backend Responses model"]
@@ -300,10 +300,10 @@ prompt fingerprint answers one question: *did the instructions change?*
 Current values for `concierge`:
 
 ```text
-fingerprint  ab377d9db44f35d611a0805432b585bc5d4ea25a0113c30c85bf3de7c6be0af3
-version      ab377d9db44f
-voice        c2c8fa84d0fe…
-backend      1ce6d786009a…
+fingerprint  3a38d1b337b0d595a0bf2cc26b69ebf9a4206e65002e0148f5d5e0e1b3bad15f
+version      3a38d1b337b0
+voice        156db23431d2…
+backend      e3ad63e9c465…
 ```
 
 1. **Participant attributes.** After `session.start`, the agent sets these on its LiveKit
@@ -311,10 +311,10 @@ backend      1ce6d786009a…
 
    ```text
    prompt.profile      concierge
-   prompt.fingerprint  ab377d9db44f35d6…
-   prompt.version      ab377d9db44f
-   prompt.voice        c2c8fa84d0fe
-   prompt.backend      1ce6d786009a
+   prompt.fingerprint  3a38d1b337b0d595…
+   prompt.version      3a38d1b337b0
+   prompt.voice        156db23431d2
+   prompt.backend      e3ad63e9c465
    prompt.tools        web_search,check_restaurant_availability
    ```
 
@@ -354,9 +354,9 @@ concierge	Dining + general-knowledge concierge
 ```console
 $ uv run python -m voice_agent.prompts render concierge --target voice \
     --var today="Wednesday, 2026-09-23" --var timezone=America/Los_Angeles
-# profile=concierge fingerprint=ab377d9db44f tools=web_search,check_restaurant_availability
+# profile=concierge fingerprint=3a38d1b337b0 tools=web_search,check_restaurant_availability
 
-===== voice (c2c8fa84d0fe) =====
+===== voice (156db23431d2) =====
 
 # Identity
 
@@ -373,7 +373,7 @@ the week.
 ...
 ```
 
-The fingerprint is the same `ab377d9db44f` with or without `--var today=...`. That is the
+The fingerprint is the same `3a38d1b337b0` with or without `--var today=...`. That is the
 runtime-variable rule at work.
 
 With the instruction strings shortened here:
@@ -382,11 +382,11 @@ With the instruction strings shortened here:
 $ uv run python -m voice_agent.prompts render concierge --json
 {
   "profile": "concierge",
-  "fingerprint": "ab377d9db44f35d611a0805432b585bc5d4ea25a0113c30c85bf3de7c6be0af3",
-  "version": "ab377d9db44f",
+  "fingerprint": "3a38d1b337b0d595a0bf2cc26b69ebf9a4206e65002e0148f5d5e0e1b3bad15f",
+  "version": "3a38d1b337b0",
   "fingerprints": {
-    "voice": "c2c8fa84d0fe8dfddd5263328a21d01e575663b5629b4674507413143eb3edd9",
-    "backend": "1ce6d786009af03d8cebdc7a661277e7170d40f44458626a583b5efa4621cacf"
+    "voice": "156db23431d2c9e462d9915d37d3d027ad2ecabda43bc8b6f694e0c6b8334b90",
+    "backend": "e3ad63e9c465acebeaef7bf84ec0998f582b7b346347c97a301cd0db11c050eb"
   },
   "tools": [
     "web_search",
@@ -473,7 +473,7 @@ profiles:
 
 ```console
 $ uv run python -m voice_agent.prompts render concierge_nyc | head -1
-# profile=concierge_nyc fingerprint=05c1bb4ebed3 tools=web_search,check_restaurant_availability
+# profile=concierge_nyc fingerprint=<new fingerprint> tools=web_search,check_restaurant_availability
 ```
 
 YAML merge keys are **shallow**. Overriding `variables`, `voice`, or `tools` replaces the whole
@@ -604,7 +604,7 @@ insurance when you can't filter output.
 ## 11. Changing behavior mid-session
 
 The bundle is frozen for the session, but GPT-Live offers three small channels through
-`agent.duplex_session()`, each capped at 500 tokens
+`agent.duplex_session`, each capped at 500 tokens
 ([primer §3](gpt-live-primer.md#3-the-three-append-channels)):
 
 | Need | Use | Don't |

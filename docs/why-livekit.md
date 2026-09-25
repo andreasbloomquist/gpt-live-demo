@@ -119,7 +119,7 @@ cancellation and agent hosting). Moving between them is a URL and credentials ch
 | Feature | Where it shows up in this repo |
 |---|---|
 | `AgentSession` / `Agent` | `AgentSession(llm=GPTLiveModel(...))`; the session wraps any `DuplexModel` in `DuplexRealtimeAdapter` automatically. |
-| First-class GPT-Live support | `livekit.plugins.openai.realtime.GPTLiveModel`, `ResponsesDelegationOptions`, `Agent.duplex_session()` for provider-specific calls. |
+| First-class GPT-Live support | `livekit.plugins.openai.realtime.GPTLiveModel`, `ResponsesDelegationOptions`, `Agent.duplex_session` for provider-specific calls. |
 | Tools | `@function_tool` for restaurant availability; `livekit.plugins.openai.tools.WebSearch` as a provider tool; both forwarded to the backend Responses model. See [`tools.md`](tools.md). |
 | Handoffs / tasks | `Agent` handoffs and `AgentTask` exist for multi-stage flows. With GPT-Live, a handoff that changes instructions starts a fresh voice session (instructions are immutable), reseeded from history. |
 | Testing and evals | `AgentSession.run(user_input=...)` returns a `RunResult` with `.expect` assertions and `.judge(llm, intent=...)`; `livekit.agents.evals` has `Judge`, `JudgeGroup`, `tool_use_judge`, `task_completion_judge`, and more. See [`evals.md`](evals.md). |
@@ -142,7 +142,7 @@ Be clear-eyed about these:
   dependency. Self-hosting removes the vendor but adds operations work.
 - **Abstraction lag.** Brand-new provider features land in the provider's API first and in the
   framework later. GPT-Live's `append_*` methods, for example, are reached through
-  `agent.duplex_session()` rather than the generic `AgentSession` API, and some generic APIs are
+  `agent.duplex_session` rather than the generic `AgentSession` API, and some generic APIs are
   intentionally no-ops or unsupported for a duplex model (`session.say()`, interrupt, truncate).
   The framework also has TODOs at the edges (e.g. answering a client delegation is manual).
 - **An extra media hop.** Caller → SFU → worker → OpenAI instead of caller → OpenAI. In practice the
@@ -169,5 +169,5 @@ Be clear-eyed about these:
 - A phone-only product already standardized on a CPaaS with its own media streaming, and a team
   that does not want to operate or pay for another media layer.
 - You need a feature the provider shipped yesterday and the framework hasn't wrapped yet, and you
-  can't wait (though `duplex_session()` and the raw `openai_server_event_received` /
+  can't wait (though `duplex_session` and the raw `openai_server_event_received` /
   `openai_client_event_queued` events often give you an escape hatch).

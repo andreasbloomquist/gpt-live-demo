@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import json
 from collections.abc import Callable
@@ -26,7 +27,7 @@ QUERY = AvailabilityQuery(
     city="San Francisco",
 )
 
-Handler = Callable[[httpx.Request], httpx.Response]
+Handler = Callable[[httpx.Request], object]  # sync or async (MockTransport accepts both)
 
 
 class FakeOpenTable:
@@ -104,6 +105,47 @@ async def test_401_refreshes_token_once() -> None:
     result = await _provider(api).search_availability(QUERY)
     assert result.status == "available"
     assert api.token_calls == 2
+
+
+def _yielding(api: FakeOpenTable) -> Handler:
+    """Wrap ``api`` so every request yields to the event loop, letting lookups interleave."""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0)
+        return api(request)
+
+    return handler
+
+
+async def test_concurrent_lookups_share_one_token_fetch() -> None:
+    api = FakeOpenTable()
+    provider = _provider(_yielding(api))
+    await asyncio.gather(*(provider.search_availability(QUERY) for _ in range(3)))
+    assert api.token_calls == 1
+
+
+async def test_concurrent_401s_trigger_a_single_refresh() -> None:
+    api = FakeOpenTable()
+    api.expire_first_token = True
+    provider = _provider(_yielding(api))
+    results = await asyncio.gather(*(provider.search_availability(QUERY) for _ in range(3)))
+    assert all(r.status == "available" for r in results)
+    assert api.token_calls == 2  # tok1 (rejected everywhere) + one shared refresh
+
+
+async def test_restaurant_id_is_quoted_into_the_path() -> None:
+    api = FakeOpenTable()
+    api.search_response = httpx.Response(200, json={"restaurants": [{"id": "../admin"}]})
+    with pytest.raises(ProviderUnavailableError):  # the fake 500s on unknown paths
+        await _provider(api).search_availability(QUERY)
+    assert api.requests[-1].url.raw_path.startswith(b"/v1/restaurants/..%2Fadmin/availability")
+
+
+async def test_malformed_search_response_is_not_found() -> None:
+    api = FakeOpenTable()
+    api.search_response = httpx.Response(200, json={"restaurants": {"id": "rid-1"}})
+    with pytest.raises(RestaurantNotFoundError):
+        await _provider(api).search_availability(QUERY)
 
 
 async def test_no_matching_restaurant() -> None:

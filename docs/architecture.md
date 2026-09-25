@@ -230,9 +230,10 @@ Each component gets the same five questions: **role**, **why we chose it**, **be
   `source_modules` also tells the eval change detector which code belongs to which tool.
 - **Benefit.** Adding a tool touches a known set of files. A typo fails at session start, never
   silently.
-- **Drawback.** One level of indirection over `Agent(tools=[...])`. Tools are built per session;
-  providers that hold state (the OpenTable client's OAuth token cache) are cached per process by
-  `build_reservation_provider` so that state survives across sessions.
+- **Drawback.** One level of indirection over `Agent(tools=[...])`. Tools, and the provider
+  behind them, are built per session, so provider state such as the OpenTable OAuth token lives
+  for one call. That is deliberate: LiveKit may run jobs on separate event loops, and asyncio
+  primitives can't be shared across them (see [`tools.md`](tools.md#6-the-provider-abstraction)).
 - **Swap it.** See [`tools.md`](tools.md).
 
 ### 2.9 Web search (`agent/voice_agent/tools/web_search.py`)
@@ -348,9 +349,9 @@ One call, traced through the real code with the real mock data. Assume the call 
 **1. Session start.** `compose_session_prompts()` renders the `concierge` profile. The runtime
 variables are `today="Wednesday, 2026-09-23"` and `timezone="America/Los_Angeles"`. Both
 prompts now say *"Today is Wednesday, 2026-09-23"*. The fingerprint still reads
-`ab377d9db44f`, because runtime variables are replaced by `<runtime:...>` placeholders before
+`3a38d1b337b0`, because runtime variables are replaced by `<runtime:...>` placeholders before
 hashing. The worker logs `composed prompts` with that fingerprint and sets the attributes
-`prompt.version=ab377d9db44f`, `prompt.voice=c2c8fa84d0fe`, `prompt.backend=1ce6d786009a`, and
+`prompt.version=3a38d1b337b0`, `prompt.voice=156db23431d2`, `prompt.backend=e3ad63e9c465`, and
 `prompt.tools=web_search,check_restaurant_availability`.
 
 **2. Greeting.** `VoiceAgent.on_enter` asks for the profile greeting: *"Greet the caller warmly
@@ -415,7 +416,7 @@ booked.
 | Refusing a past date or `"7pm"` | `check_availability` validation → `ToolError` the model can act on |
 | Deterministic slots for evals | `MockReservationProvider` seeded by restaurant + date |
 | Not claiming a booking | Tool output field `"booking"`, backend skill module, `core/guardrails` |
-| Tracing this call to the prompt | `prompt.version=ab377d9db44f` attribute and log context |
+| Tracing this call to the prompt | `prompt.version=3a38d1b337b0` attribute and log context |
 
 The same flow with `RESTAURANT_PROVIDER=opentable` differs only inside step 5. The provider
 fetches (or reuses) an OAuth token, resolves "Nopa" to a restaurant id, and fetches slots with a

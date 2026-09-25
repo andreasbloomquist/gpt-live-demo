@@ -126,7 +126,7 @@ LLM, a rules engine, or a RAG service you already operate.
 
 ## 3. The three append channels
 
-Reached through `agent.duplex_session()` (returns the `GPTLiveSession`). Each takes
+Reached through `agent.duplex_session` (returns the `GPTLiveSession`). Each takes
 `text` and an optional `delegation_id`, returns immediately, and is **capped at 500 tokens**
 (enforced by the service, not the plugin).
 
@@ -336,19 +336,19 @@ class Concierge(Agent):
     @function_tool
     async def remember_preference(self, context: RunContext, preference: str) -> str:
         """Record a lasting caller preference (e.g. dietary needs)."""
-        live: GPTLiveSession = self.duplex_session()  # type: ignore[assignment]
+        live: GPTLiveSession = self.duplex_session  # type: ignore[assignment]
         live.append_instructions(f"Caller preference, apply for the rest of the call: {preference}")
         return "noted"
 
     async def on_enter(self) -> None:
-        live: GPTLiveSession = self.duplex_session()  # type: ignore[assignment]
+        live: GPTLiveSession = self.duplex_session  # type: ignore[assignment]
         live.append_thinking(
             "Caller is signed in as a returning guest named Sam."
         )  # know, don't say
         self.session.generate_reply(instructions="Welcome Sam back.")
 ```
 
-`duplex_session()` raises `RuntimeError` if the agent isn't running or isn't on a `DuplexModel`.
+`duplex_session` raises `RuntimeError` if the agent isn't running or isn't on a `DuplexModel`.
 Mind the 500-token cap per append.
 
 ### 6.4 Client delegation: bring your own brain
@@ -369,7 +369,7 @@ class ClientDelegatedAgent(Agent):
         self._tasks: set[asyncio.Task] = set()
 
     async def on_enter(self) -> None:
-        live: GPTLiveSession = self.duplex_session()  # type: ignore[assignment]
+        live: GPTLiveSession = self.duplex_session  # type: ignore[assignment]
 
         def on_delegation(d: GPTLiveDelegation) -> None:
             task = asyncio.create_task(self._answer(live, d))

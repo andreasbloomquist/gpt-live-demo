@@ -101,7 +101,9 @@ async def check_availability(
             city=city or None,
         )
     except ValidationError as exc:
-        raise ToolError(f"Invalid request: {exc.errors()[0]['msg']}") from None
+        error = exc.errors()[0]
+        field = ".".join(str(part) for part in error["loc"]) or "arguments"
+        raise ToolError(f"Invalid {field}: {error['msg']}") from None
 
     try:
         result = await provider.search_availability(query)

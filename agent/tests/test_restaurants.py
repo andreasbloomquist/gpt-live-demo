@@ -102,6 +102,19 @@ def test_tool_output_is_compact_and_says_not_booked() -> None:
     assert "not booked" in out["booking"]
 
 
+def test_tool_output_lists_each_time_once() -> None:
+    result = RestaurantAvailability(
+        restaurant="Nopa",
+        date=dt.date(2026, 10, 2),
+        requested_time="19:30",
+        party_size=2,
+        status="available",
+        slots=[{"time": "19:30", "area": a} for a in ("bar", "patio")] + [{"time": "20:00"}],  # type: ignore[misc]
+        provider="test",
+    )
+    assert result.to_tool_output()["nearest_available_times"] == ["19:30", "20:00"]
+
+
 # --------------------------------------------------------------------------- tool function
 class _StubProvider:
     name = "stub"
@@ -154,6 +167,7 @@ async def test_tool_passes_city_and_parses_arguments() -> None:
         ({"party_size": 0}, "at least 1"),
         ({"party_size": 40}, "larger than 20"),
         ({"restaurant": "  "}, "which restaurant"),
+        ({"restaurant": "x" * 121}, "Invalid restaurant"),
     ],
 )
 async def test_tool_validation_errors(kwargs: dict[str, object], match: str) -> None:

@@ -5,6 +5,7 @@ import subprocess
 import sys
 
 import pytest
+from pydantic import ValidationError
 
 from voice_agent.config import ConfigurationError, Settings
 from voice_agent.model import build_gpt_live_model, build_responses_options
@@ -37,10 +38,22 @@ def test_runtime_variables_in_agent_timezone(settings: Settings) -> None:
     assert values == {"today": "Friday, 2026-09-25", "timezone": "America/Los_Angeles"}
 
 
-def test_unknown_timezone_falls_back_to_utc() -> None:
-    settings = Settings(_env_file=None, agent_timezone="Mars/Olympus")  # type: ignore[call-arg]
+def test_unknown_timezone_is_rejected_at_startup() -> None:
+    with pytest.raises(ValidationError, match="AGENT_TIMEZONE"):
+        Settings(_env_file=None, agent_timezone="Mars/Olympus")  # type: ignore[call-arg]
+
+
+def test_runtime_zone_still_falls_back_to_utc_defensively() -> None:
+    # Settings validation normally prevents this; the fallback guards settings built without it.
+    settings = Settings.model_construct(agent_timezone="Mars/Olympus")
     now = dt.datetime(2026, 9, 26, 3, 0, tzinfo=dt.timezone.utc)
     assert runtime_prompt_variables(settings, now=now)["today"] == "Saturday, 2026-09-26"
+
+
+def test_log_level_is_case_insensitive_and_validated() -> None:
+    assert Settings(_env_file=None, log_level="debug").log_level == "DEBUG"  # type: ignore[call-arg]
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, log_level="LOUD")  # type: ignore[call-arg]
 
 
 def test_main_imports_without_keys() -> None:

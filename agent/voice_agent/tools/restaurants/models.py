@@ -64,7 +64,9 @@ class RestaurantAvailability(BaseModel):
         instructed to offer at most three anyway.
         """
         requested = _minutes(self.requested_time)
-        nearest = sorted(self.slots, key=lambda s: (abs(_minutes(s.time) - requested), s.time))
+        # A provider may list the same time once per seating area; the caller only needs it once.
+        times = {s.time for s in self.slots}
+        nearest = sorted(times, key=lambda t: (abs(_minutes(t) - requested), t))
         out: dict[str, Any] = {
             "restaurant": self.restaurant,
             "date": self.date.isoformat(),
@@ -73,7 +75,7 @@ class RestaurantAvailability(BaseModel):
             "party_size": self.party_size,
             "status": self.status,
             "requested_time_available": self.status == "available",
-            "nearest_available_times": [s.time for s in nearest[:max_slots]],
+            "nearest_available_times": nearest[:max_slots],
             "booking": "not booked - availability check only",
         }
         if self.city:

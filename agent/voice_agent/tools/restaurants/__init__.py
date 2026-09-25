@@ -22,40 +22,33 @@ if TYPE_CHECKING:
     from ...config import Settings
 
 
-_OPENTABLE_PROVIDERS: dict[tuple[str, str, str, str, float], OpenTableProvider] = {}
-
-
 def build_reservation_provider(settings: Settings) -> ReservationProvider:
-    """Pick the provider named by ``RESTAURANT_PROVIDER`` (``mock`` or ``opentable``)."""
+    """Pick the provider named by ``RESTAURANT_PROVIDER`` (``mock`` or ``opentable``).
+
+    Called once per session, and deliberately not cached per process: the provider's OAuth
+    token lock is an :class:`asyncio.Lock`, which binds to the event loop that first waits on
+    it. LiveKit's thread executor (used by ``console`` and on Windows) runs each job on its own
+    loop, so a shared provider would fail later sessions with "bound to a different event loop".
+    The default process executor runs one job per process, so a cache would never be hit there.
+    """
     from ...config import ConfigurationError
 
     if settings.restaurant_provider == "mock":
         return MockReservationProvider()
     if settings.restaurant_provider == "opentable":
         secret = settings.opentable_client_secret
-        if not settings.opentable_client_id or secret is None:
+        if not settings.opentable_client_id or secret is None or not secret.get_secret_value():
             raise ConfigurationError(
                 "RESTAURANT_PROVIDER=opentable needs OPENTABLE_CLIENT_ID and "
                 "OPENTABLE_CLIENT_SECRET (OpenTable partner credentials)."
             )
-        # One provider per credential set per process, so the OAuth token cache survives
-        # across sessions instead of paying a token round-trip on every call's first lookup.
-        key = (
-            settings.opentable_client_id,
-            secret.get_secret_value(),
-            settings.opentable_api_base_url,
-            settings.opentable_oauth_url,
-            settings.opentable_timeout_seconds,
+        return OpenTableProvider(
+            client_id=settings.opentable_client_id,
+            client_secret=secret.get_secret_value(),
+            base_url=settings.opentable_api_base_url,
+            oauth_url=settings.opentable_oauth_url,
+            timeout_s=settings.opentable_timeout_seconds,
         )
-        if key not in _OPENTABLE_PROVIDERS:
-            _OPENTABLE_PROVIDERS[key] = OpenTableProvider(
-                client_id=key[0],
-                client_secret=key[1],
-                base_url=key[2],
-                oauth_url=key[3],
-                timeout_s=key[4],
-            )
-        return _OPENTABLE_PROVIDERS[key]
     raise ConfigurationError(f"unknown RESTAURANT_PROVIDER {settings.restaurant_provider!r}")
 
 

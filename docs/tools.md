@@ -310,12 +310,14 @@ What *is* production-shaped and worth keeping:
 - **Injectable `httpx.AsyncClient`.** `agent/tests/test_opentable.py` runs against
   `httpx.MockTransport`, with no network.
 
-Lifetime: `build_reservation_provider` caches one `OpenTableProvider` per credential set per
-process, so the OAuth token cache survives across sessions and only the first lookup after a
-worker starts (or after the token expires) pays the OAuth round-trip. Without an injected client
-the provider still opens a short-lived `httpx.AsyncClient` per lookup, so the connection pool
-does not persist. For high-volume production use, inject a long-lived `httpx.AsyncClient`
-(created in the `AgentServer` setup/prewarm hook) so connections are reused too.
+Lifetime: `build_reservation_provider` builds a new `OpenTableProvider` **per session**, so
+the first lookup in each call pays one OAuth round-trip (concurrent lookups share it; the token
+lock is single-flight). It is deliberately not cached per process: the provider's
+`asyncio.Lock` binds to one event loop, and LiveKit's thread executor (used by console mode and
+by default on Windows) gives each job its own loop, so a shared provider would fail on a later
+call. With the default process executor, each job runs in its own process anyway, so a
+per-process cache would never be hit. For high volume, move token caching to a process-safe
+store (or a small token-broker service) and inject a long-lived `httpx.AsyncClient` per session.
 
 ### Other providers
 
@@ -616,10 +618,10 @@ Check the result:
 
 ```console
 $ uv run python -m voice_agent.prompts render concierge | head -1
-# profile=concierge fingerprint=506c1cfaeab0 tools=web_search,check_restaurant_availability,lookup_restaurant_notes
+# profile=concierge fingerprint=<new fingerprint> tools=web_search,check_restaurant_availability,lookup_restaurant_notes
 ```
 
-The fingerprint moved from `ab377d9db44f` to `506c1cfaeab0`: a new prompt version. If you forget
+The fingerprint changes (from `3a38d1b337b0` to a new value): a new prompt version. If you forget
 the `tools:` entry, composition fails with `module 'skills/restaurant_notes.voice' requires
 tool(s) ['lookup_restaurant_notes'] which the profile does not enable`.
 

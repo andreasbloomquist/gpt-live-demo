@@ -68,7 +68,7 @@ uv run python -m voice_agent.prompts render concierge            # voice + backe
 uv run python -m voice_agent.prompts render concierge --json     # full bundle incl. fingerprint
 ```
 
-You should see `fingerprint=ab377d9db44f` for the unmodified `concierge` profile. That is exactly
+You should see `fingerprint=3a38d1b337b0` for the unmodified `concierge` profile. That is exactly
 the text GPT-Live and the backend model will receive, except that `<runtime:today>` is filled in
 at session start. See [`modular-prompts.md`](modular-prompts.md).
 
@@ -274,7 +274,7 @@ minimum to adopt it in an existing LiveKit Agents 1.8 project:
       tools, argument formats, how to report). ([`modular-prompts.md` §10](modular-prompts.md#10-writing-voice-prompts-vs-backend-prompts))
 - [ ] **Compose instructions before `session.start`.** They are immutable afterwards. Anything
       dynamic (date, caller facts) must be rendered in up front, or appended later via
-      `duplex_session().append_thinking()` / `append_instructions()` (≤500 tokens each).
+      `duplex_session.append_thinking()` / `append_instructions()` (≤500 tokens each).
 - [ ] **Put today's date in both prompts.** The backend resolves "Friday" against it.
 - [ ] **Keep your tools.** Under `delegation="responses"`, existing `@function_tool`s work
       unchanged and run on the backend brain. Make their docstrings and error messages

@@ -7,6 +7,7 @@ from livekit.plugins.openai.tools import WebSearch
 
 from voice_agent.config import ConfigurationError, Settings
 from voice_agent.tools import TOOL_REGISTRY, UnknownToolError, resolve_tools
+from voice_agent.tools.restaurants import OpenTableProvider, build_reservation_provider
 
 
 def test_registry_keys() -> None:
@@ -47,3 +48,28 @@ def test_opentable_requires_credentials() -> None:
     settings = Settings(_env_file=None, restaurant_provider="opentable")  # type: ignore[call-arg]
     with pytest.raises(ConfigurationError, match="OPENTABLE_CLIENT_ID"):
         resolve_tools(["check_restaurant_availability"], settings)
+
+
+def test_opentable_rejects_empty_secret() -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        restaurant_provider="opentable",
+        opentable_client_id="id",
+        opentable_client_secret="",
+    )
+    with pytest.raises(ConfigurationError, match="OPENTABLE_CLIENT_SECRET"):
+        build_reservation_provider(settings)
+
+
+def test_opentable_provider_is_per_session() -> None:
+    # Not cached per process: its asyncio.Lock binds to one event loop, and LiveKit's thread
+    # executor runs each job on its own loop.
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        restaurant_provider="opentable",
+        opentable_client_id="id",
+        opentable_client_secret="secret",
+    )
+    first = build_reservation_provider(settings)
+    assert isinstance(first, OpenTableProvider)
+    assert build_reservation_provider(settings) is not first

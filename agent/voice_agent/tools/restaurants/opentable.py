@@ -29,6 +29,7 @@ import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -92,10 +93,15 @@ class OpenTableProvider:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             yield client
 
-    async def _access_token(self, client: httpx.AsyncClient, *, force: bool = False) -> str:
+    async def _access_token(self, client: httpx.AsyncClient, *, rejected: str | None = None) -> str:
+        """Return a cached token, fetching a new one if it expired or equals ``rejected``.
+
+        The lock makes refreshes single-flight: concurrent lookups that all got a 401 for the
+        same token wait for one refresh and then reuse its result.
+        """
         async with self._token_lock:
             now = time.monotonic()
-            if not force and self._token and now < self._token_expires_at:
+            if self._token and self._token != rejected and now < self._token_expires_at:
                 return self._token
             try:
                 resp = await client.post(
@@ -127,8 +133,9 @@ class OpenTableProvider:
         self, client: httpx.AsyncClient, path: str, params: dict[str, Any]
     ) -> dict[str, Any]:
         url = f"{self._base_url}{path}"
+        rejected: str | None = None
         for attempt in range(2):
-            token = await self._access_token(client, force=attempt > 0)
+            token = await self._access_token(client, rejected=rejected)
             try:
                 resp = await client.get(
                     url,
@@ -145,7 +152,8 @@ class OpenTableProvider:
             except httpx.HTTPError as exc:
                 raise ProviderUnavailableError(detail=f"GET {path} failed: {exc}") from exc
             if resp.status_code == 401 and attempt == 0:
-                continue  # token revoked/expired early: refresh once and retry
+                rejected = token  # revoked/expired early: refresh once and retry
+                continue
             return self._check_response(resp, path)
         raise ProviderUnavailableError(detail=f"GET {path}: unauthorized after token refresh")
 
@@ -181,8 +189,13 @@ class OpenTableProvider:
         if query.city:
             params["city"] = query.city
         data = await self._get(client, RESTAURANT_SEARCH_PATH, params)
-        items = data.get("restaurants") or []
-        if not items or not isinstance(items[0], dict) or "id" not in items[0]:
+        items = data.get("restaurants")
+        if (
+            not isinstance(items, list)
+            or not items
+            or not isinstance(items[0], dict)
+            or "id" not in items[0]
+        ):
             raise RestaurantNotFoundError(
                 f"I couldn't find a restaurant called {query.restaurant}"
                 + (f" in {query.city}" if query.city else "")
@@ -201,7 +214,9 @@ class OpenTableProvider:
             "forward_minutes": 90,
             "backward_minutes": 90,
         }
-        return await self._get(client, AVAILABILITY_PATH.format(rid=rid), params)
+        # The id comes from the API response; quote it so it can't alter the request path.
+        path = AVAILABILITY_PATH.format(rid=quote(str(rid), safe=""))
+        return await self._get(client, path, params)
 
     def _parse_availability(
         self, query: AvailabilityQuery, restaurant: dict[str, Any], payload: dict[str, Any]
