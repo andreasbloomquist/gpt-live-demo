@@ -709,7 +709,7 @@ profile: concierge
 tiers: [brain]            # add `voice` once the brain tier is green
 tools: [lookup_restaurant_notes]
 trials: 3
-pass_threshold: 0.67
+pass_threshold: 0.66
 
 cases:
   - id: parking_question_uses_notes
