@@ -108,7 +108,8 @@ flowchart LR
    instructions for the brain, and the tool list, then fingerprints them.
 4. **GPT-Live** holds the conversation. When the caller asks for something that needs thought or
    data, it hands the work to the **backend model**, which calls `web_search` (inside OpenAI) or
-   `check_restaurant_availability` (in our worker). GPT-Live then speaks the result in its own words.
+   `check_restaurant_availability` (in our worker). GPT-Live then speaks the result in its own
+   words.
 5. When the caller hangs up, the worker **records the call** (transcript, tool calls, timing,
    transcription confidence, prompt fingerprint) and posts it to the **Call Analyzer**, which
    grades it in the background. The **Calls** views read the result.
@@ -220,8 +221,8 @@ The composer is strict:
 | `check_restaurant_availability` | LiveKit `@function_tool` | In the agent worker | Validates arguments, **never books**, returns compact JSON the voice can speak. Backed by a deterministic mock or an OpenTable partner-API client. |
 
 Adding your own tool takes one function, one registry entry, a voice module and a backend module,
-the manifest entries that enable them, a unit test, and an eval suite. The step-by-step tutorial is in
-[`docs/tools.md`](docs/tools.md#10-tutorial-add-your-own-custom-tool).
+the manifest entries that enable them, a unit test, and an eval suite. The step-by-step tutorial
+is in [`docs/tools.md`](docs/tools.md#10-tutorial-add-your-own-custom-tool).
 
 ## Evals that only run when they matter
 

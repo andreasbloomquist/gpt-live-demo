@@ -66,7 +66,8 @@ A WebSocket is TCP. On a lossy mobile or Wi-Fi link, one lost packet stalls ever
 (head-of-line blocking) until it is retransmitted; for real-time audio that shows up as bursts of
 silence followed by sped-up catch-up, or growing latency. WebRTC media runs over UDP with:
 
-- **Opus** with in-band FEC and packet-loss concealment, so a lost packet is a tiny glitch, not a stall;
+- **Opus** with in-band FEC and packet-loss concealment, so a lost packet is a tiny glitch, not
+  a stall;
 - **adaptive jitter buffers** that smooth variable network delay;
 - **congestion control / bandwidth estimation** that adapts rather than queues;
 - **ICE + TURN** to get through NATs and corporate firewalls (TURN over TLS/443 as a last resort);
@@ -146,8 +147,8 @@ Be clear-eyed about these:
   `agent.duplex_session` rather than the generic `AgentSession` API, and some generic APIs are
   intentionally no-ops or unsupported for a duplex model (`session.say()`, interrupt, truncate).
   The framework also has TODOs at the edges (e.g. answering a client delegation is manual).
-- **An extra media hop.** Caller → SFU → worker → OpenAI instead of caller → OpenAI. In practice the
-  SFU-to-worker hop is small compared with last-mile jitter it removes, but it exists.
+- **An extra media hop.** Caller → SFU → worker → OpenAI instead of caller → OpenAI. In practice
+  the SFU-to-worker hop is small compared with the last-mile jitter it removes, but it exists.
 - **Coupling to LiveKit transport.** Agents can run in console mode and other I/O, but the
   production path assumes LiveKit rooms.
 

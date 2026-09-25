@@ -1,8 +1,8 @@
 # Evals: testing a full-duplex voice agent without paying for every commit
 
-This page explains how the repo evaluates the GPT-Live agent. It covers what makes a speech-to-speech
-agent hard to test, the three eval tiers, how suites are written and graded, and the change-impact
-detector, which reads a diff and decides which paid evals it needs. It also covers the CI
+This page explains how the repo evaluates the GPT-Live agent. It covers what makes a
+speech-to-speech agent hard to test, the three eval tiers, how suites are written and graded, and
+the change-impact detector, which reads a diff and decides which paid evals it needs. It also covers the CI
 workflows and the trade-offs of the design. Everything here matches the code in `evals/` and
 `.github/workflows/`. The command outputs below were produced by running that code.
 
@@ -493,10 +493,10 @@ Two rows are less obvious than the others:
   never call it. The backend model reads all tool descriptions on every request, so rewording
   one tool can change when the model reaches for a different one.
 
-Settings in `config.py` are compared **field by field**. Credentials, URLs, `log_level`, `livekit_*`,
-`opentable_*` fields (evals always use the mock) and `call_*` recording fields (post-call only) are ignored. Credentials are matched as
-whole name segments (`*_api_key`, `*_secret`, `*_token`), so `gpt_live_backend_max_output_tokens`
-stays behavioral. A new field is treated as behavioral until someone adds it to an allow-list.
+Settings in `config.py` are compared **field by field**. Credentials, URLs, `log_level`,
+`livekit_*`, `opentable_*` fields (evals always use the mock) and `call_*` recording fields
+(post-call only) are ignored. Credentials are matched as whole name segments (`*_api_key`,
+`*_secret`, `*_token`), so `gpt_live_backend_max_output_tokens` stays behavioral. A new field is treated as behavioral until someone adds it to an allow-list.
 
 ### What does *not* trigger evals, and why that is safe
 
@@ -924,8 +924,8 @@ These are opinionated, and each one is implemented in this repo.
    sees the prompt grades intent. A judge on a 1–10 scale drifts. A judge that silently upgrades
    with the agent moves the goalposts. And fence the transcript as data: it contains tool output
    and web content, and a judge that follows instructions found there can be talked into a PASS.
-7. **Report pass^k (here pass^2).** Every caller is one sample. Early-stop failing cases, but never stop a
-   passing case early.
+7. **Report pass^k (here pass^2).** Every caller is one sample. Early-stop failing cases, but
+   never stop a passing case early.
 8. **Test precision as well as recall.** Every suite has a "don't call a tool" case
    (`small_talk_no_tool`, `stable_fact_no_search`, `off_topic_redirect`). An agent that searches
    the web for "how many minutes are in three hours" adds latency on every call.
@@ -933,8 +933,8 @@ These are opinionated, and each one is implemented in this repo.
    session, and a green check on an assertion that never ran is worse than no check.
 10. **Freeze the synthetic caller.** Cache TTS audio so input audio is byte-identical across
     commits, and record ASR similarity so a misheard input isn't blamed on the agent.
-11. **Measure latency in the voice tier.** On a phone call, silence is a failure mode. Voice-to-voice
-    latency belongs in the same report as correctness.
+11. **Measure latency in the voice tier.** On a phone call, silence is a failure mode.
+    Voice-to-voice latency belongs in the same report as correctness.
 12. **Fingerprint what the model sees.** Hash rendered prompts and tool JSON, not source files.
     That is what lets a docstring or reflow edit cost nothing while a one-word guardrail change
     re-runs exactly the right tier.
