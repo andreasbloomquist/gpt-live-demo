@@ -4,7 +4,10 @@ Security posture: every ``/v1`` route requires ``Authorization: Bearer <CALL_ANA
 compared in constant time. Authentication runs *before* the body is read, and the body is read
 with a hard byte cap, so an unauthenticated or oversized request costs almost nothing. Error
 responses are always ``{"error": {"code", "message"}}`` JSON: no stack traces, and validation
-errors never echo the submitted values (they may contain caller speech).
+errors never echo the submitted values (they may contain caller speech). Unexpected exceptions
+are caught here and logged without their message (see :mod:`call_analyzer.logs`), so they never
+reach the server's own traceback logging. The schema docs (``/docs``, ``/redoc``,
+``/openapi.json``) are off unless ``ANALYZER_ENABLE_DOCS=true``.
 
 The service is meant to sit behind the agent and the frontend's server routes, never a browser,
 so there is deliberately no CORS configuration.
@@ -22,12 +25,15 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.requests import ClientDisconnect
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .analysis import CallAnalyzer
 from .config import PLACEHOLDER_TOKEN, Settings
+from .logs import describe_exception, safe_traceback
 from .models import (
     CALL_ID_PATTERN,
     Analysis,
@@ -123,18 +129,47 @@ def _install_error_handlers(app: FastAPI) -> None:
             422, "Request validation failed.", details=_validation_details(list(exc.errors()))
         )
 
-    @app.exception_handler(Exception)
-    async def unexpected_error(request: Request, exc: Exception) -> JSONResponse:
-        # The server (uvicorn) logs the traceback when Starlette re-raises; the client only
-        # ever sees a generic message.
-        logger.error(
-            "unhandled error",
-            extra={"method": request.method, "path": request.url.path, "error": type(exc).__name__},
-        )
-        return JSONResponse(
-            {"error": {"code": "internal_error", "message": "Internal server error."}},
-            status_code=500,
-        )
+
+class CatchAllMiddleware:
+    """Turn any unexpected exception into a generic 500 and log it *safely*.
+
+    A plain ``exception_handler(Exception)`` isn't enough: Starlette re-raises after calling it,
+    and uvicorn then logs the full exception, message included, which for a pydantic
+    ``ValidationError`` means transcript text. Catching here means nothing reaches uvicorn.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        started = False
+
+        async def tracking_send(message: Message) -> None:
+            nonlocal started
+            started = started or message["type"] == "http.response.start"
+            await send(message)
+
+        try:
+            await self.app(scope, receive, tracking_send)
+        except Exception as exc:
+            logger.error(
+                "unhandled error",
+                extra={
+                    "method": scope.get("method"),
+                    "path": scope.get("path"),
+                    "error": describe_exception(exc),
+                    "stack": safe_traceback(exc),
+                },
+            )
+            if not started:  # otherwise the response is half-sent; nothing sensible to add
+                response = JSONResponse(
+                    {"error": {"code": "internal_error", "message": "Internal server error."}},
+                    status_code=500,
+                )
+                await response(scope, receive, send)
 
 
 # --- Dependencies -------------------------------------------------------------------------------
@@ -170,11 +205,17 @@ async def read_limited_body(request: Request, limit: int) -> bytes:
             raise HTTPException(413, f"Request body exceeds {limit} bytes.")
     chunks: list[bytes] = []
     size = 0
-    async for chunk in request.stream():
-        size += len(chunk)
-        if size > limit:
-            raise HTTPException(413, f"Request body exceeds {limit} bytes.")
-        chunks.append(chunk)
+    try:
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > limit:
+                raise HTTPException(413, f"Request body exceeds {limit} bytes.")
+            chunks.append(chunk)
+    except ClientDisconnect:
+        # The client hung up mid-upload (the agent's timeout, a dropped link). Not a server
+        # error: answer 400 (nobody will read it) and let the client retry.
+        logger.info("client disconnected during upload", extra={"received_bytes": size})
+        raise HTTPException(400, "Client disconnected before the body was complete.") from None
     return b"".join(chunks)
 
 
@@ -227,16 +268,22 @@ def create_app(
             await call_analyzer.aclose()
             await repo.close()
 
+    docs = settings.enable_docs
     app = FastAPI(
         title="Call Analyzer",
         version="1.0.0",
         summary="Stores voice-agent calls and grades them against a versioned rubric.",
         lifespan=lifespan,
+        # Off by default: the schema is a map of the API for anyone who can reach the port.
+        docs_url="/docs" if docs else None,
+        redoc_url="/redoc" if docs else None,
+        openapi_url="/openapi.json" if docs else None,
     )
     app.state.token_digest = _digest(token)
     app.state.repo = repo
     app.state.worker = worker
     _install_error_handlers(app)
+    app.add_middleware(CatchAllMiddleware)
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz() -> dict[str, str]:
@@ -310,14 +357,15 @@ def create_app(
         return CallList(items=items, next_cursor=next_cursor)
 
     @v1.get("/calls/{call_id}", response_model=CallDetail)
-    async def get_call(call_id: CallIdPath) -> CallDetail:
+    async def get_call(call_id: CallIdPath) -> Response:
         stored = await repo.get_call(call_id)
         if stored is None:
             raise HTTPException(404, "Call not found.")
-        return CallDetail(
-            record=CallRecord.model_validate_json(stored.record_json),
-            analysis=stored.analysis.to_analysis(),
-        )
+        # The record is served exactly as stored (it was validated and normalized at ingest):
+        # re-validating would turn every model tightening into a 500 for older rows.
+        analysis = stored.analysis.to_analysis().model_dump_json()
+        body = f'{{"record":{stored.record_json},"analysis":{analysis}}}'
+        return Response(body, media_type="application/json")
 
     @v1.post("/calls/{call_id}/analyze", status_code=202, response_model=Accepted)
     async def reanalyze(call_id: CallIdPath) -> Accepted:

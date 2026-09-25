@@ -16,6 +16,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ProviderChoice = Literal["auto", "openai", "heuristic"]
 ReasoningEffort = Literal["none", "minimal", "low", "medium", "high"]
+MaxTokensParam = Literal["max_completion_tokens", "max_tokens"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 # The frontend's .env.example ships this value; it is fine on a laptop, never on a server.
@@ -47,6 +48,9 @@ class Settings(BaseSettings):
         default=2 * 1024 * 1024, ge=1024, validation_alias="ANALYZER_MAX_BODY_BYTES"
     )
     log_level: LogLevel = Field(default="INFO", validation_alias="LOG_LEVEL")
+    # Serve /docs, /redoc and /openapi.json. Off by default: they map the API for anyone who
+    # can reach the port.
+    enable_docs: bool = Field(default=False, validation_alias="ANALYZER_ENABLE_DOCS")
 
     # --- Storage -----------------------------------------------------------------------------
     db_path: Path = Field(default=Path("./data/calls.db"), validation_alias="ANALYZER_DB_PATH")
@@ -63,6 +67,11 @@ class Settings(BaseSettings):
     # the parameter, so set ANALYZER_REASONING_EFFORT= (empty) for those.
     reasoning_effort: ReasoningEffort | None = Field(
         default="low", validation_alias="ANALYZER_REASONING_EFFORT"
+    )
+    # Name of the output-cap parameter. OpenAI's current name is `max_completion_tokens`; some
+    # OpenAI-compatible servers (older vLLM/Ollama/LiteLLM setups) only accept `max_tokens`.
+    max_tokens_param: MaxTokensParam = Field(
+        default="max_completion_tokens", validation_alias="ANALYZER_MAX_TOKENS_PARAM"
     )
     # Includes reasoning tokens on reasoning models; the JSON answer itself is ~1-2k tokens.
     max_output_tokens: int = Field(

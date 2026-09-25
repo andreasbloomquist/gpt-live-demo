@@ -11,8 +11,9 @@ Failure handling:
   exponential backoff plus jitter, up to ``max_attempts``; then the row is ``failed``.
 * Non-retryable errors (bad key, unknown model, refusals) fail immediately.
 * A job that overruns ``job_timeout_s`` is cancelled and counts as a retryable failure.
-* Unexpected exceptions are bugs: logged with a traceback, stored as a generic message (never
-  the exception text, which could echo transcript content), and not retried.
+* Unexpected exceptions are bugs: logged with their type and stack but never their message
+  (a pydantic error quotes its input, i.e. transcript text), stored as a generic message, and
+  not retried.
 * On graceful shutdown, in-flight jobs are cancelled and handed back as ``pending`` without
   charging an attempt. If the process dies instead, rows stay ``running`` and the next startup
   requeues them (restart recovery), charging the attempt so a crash-inducing call can't loop.
@@ -26,6 +27,7 @@ import logging
 import random
 
 from .analysis import CallAnalyzer
+from .logs import describe_exception, safe_traceback
 from .models import CallRecord
 from .providers.base import ProviderError
 from .storage import CallRepository, Job
@@ -33,6 +35,10 @@ from .storage import CallRepository, Job
 logger = logging.getLogger(__name__)
 
 MAX_BACKOFF_S = 30 * 60
+
+
+def _exc_fields(exc: BaseException) -> dict[str, str]:
+    return {"error": describe_exception(exc), "stack": safe_traceback(exc)}
 
 
 def backoff_delay(attempt: int, base_s: float, retry_after_s: float | None = None) -> float:
@@ -102,9 +108,11 @@ class AnalysisWorker:
                     continue
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as exc:
                 # A storage hiccup (disk full, locked DB) must not kill the loop for good.
-                logger.exception("analysis worker loop error", extra={"worker": index})
+                logger.error(
+                    "analysis worker loop error", extra={"worker": index, **_exc_fields(exc)}
+                )
             # A notify() that lands between claim_next() and here is not lost: the event
             # stays set, so wait() returns immediately and we claim again.
             with contextlib.suppress(asyncio.TimeoutError):
@@ -138,8 +146,8 @@ class AnalysisWorker:
             )
         except ProviderError as exc:
             await self._handle_failure(job, exc)
-        except Exception:
-            logger.exception("unexpected error analyzing call", extra=log_extra)
+        except Exception as exc:
+            logger.error("unexpected error analyzing call", extra={**log_extra, **_exc_fields(exc)})
             await self._repo.fail(job, "internal error while analyzing (see service logs)")
         else:
             if await self._repo.complete(job, analysis):

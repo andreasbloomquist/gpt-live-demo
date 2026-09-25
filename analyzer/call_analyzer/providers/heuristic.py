@@ -272,9 +272,14 @@ def _found_a_table(s: _Signals) -> bool:
 def _intent(s: _Signals) -> str:
     if s.checks:
         args = s.checks[0][1]
-        party, restaurant = args.get("party_size", "?"), args.get("restaurant", "a restaurant")
-        when = f"{_spoken_date(args.get('date'))}, {_spoken_time(args.get('time'))}"
-        return f"Table for {party} at {restaurant} ({when})"
+        party, restaurant = _field(args, "party_size"), _field(args, "restaurant")
+        date, time = _field(args, "date"), _field(args, "time")
+        when = ", ".join(
+            part for part in (date and _spoken_date(date), time and _spoken_time(time)) if part
+        )
+        return f"Table{f' for {party}' if party else ''} at {restaurant or 'a restaurant'}" + (
+            f" ({when})" if when else ""
+        )
     if s.searches:
         query = str(_json_object(s.searches[0].arguments).get("query", "")).strip()
         if query:
@@ -283,6 +288,12 @@ def _intent(s: _Signals) -> str:
         words = s.user[0].text.split()
         return " ".join(words[:10]) + ("..." if len(words) > 10 else "")
     return "Unknown (caller never spoke)"
+
+
+def _field(data: dict[str, object], key: str) -> str | None:
+    """A tool argument/output field as display text, or None if absent (never ``"None"``)."""
+    value = data.get(key)
+    return None if value is None or value == "" else str(value)
 
 
 def _outcome(s: _Signals) -> tuple[OutcomeStatus, str]:
@@ -535,25 +546,34 @@ def _check_story(s: _Signals) -> str:
     with the restaurant's name so a prefix never has to re-case it."""
     successful = [(args, out) for call, args, out in s.checks if not call.is_error and out]
     if not successful:
-        restaurant = s.checks[-1][1].get("restaurant", "the restaurant")
-        return f"Every availability check for {restaurant} failed, so the caller got no answer"
+        last_args = s.checks[-1][1]
+        restaurant = _field(last_args, "restaurant") or "the restaurant"
+        if all(call.is_error for call, _, _ in s.checks):
+            return f"Every availability check for {restaurant} failed, so the caller got no answer"
+        # A check that didn't error but whose output isn't a JSON object: we can't tell what it
+        # found, so say that rather than calling it a failure.
+        return f"The agent checked availability at {restaurant}; the result couldn't be read"
     args, out = successful[-1]
-    restaurant = out.get("restaurant") or args.get("restaurant", "The restaurant")
-    requested = _clock(out.get("requested_time") or args.get("time"))
-    party = out.get("party_size") or args.get("party_size", "?")
-    day = out.get("weekday") or _spoken_date(out.get("date") or args.get("date"))
+    restaurant = _field(out, "restaurant") or _field(args, "restaurant") or "The restaurant"
+    requested_raw = _field(out, "requested_time") or _field(args, "time")
+    requested = _clock(requested_raw) if requested_raw else "the requested time"
+    party = _field(out, "party_size") or _field(args, "party_size")
+    date = _field(out, "date") or _field(args, "date")
+    day = _field(out, "weekday") or (date and _spoken_date(date))
+    on_day = f" on {day}" if day else ""
     # Tool output is data from the record, not a contract: tolerate a missing or odd list.
     raw_times = out.get("nearest_available_times")
-    times = [str(t) for t in raw_times] if isinstance(raw_times, list) else []
+    times = [t for t in raw_times if isinstance(t, str)] if isinstance(raw_times, list) else []
     status, note = out.get("status"), str(out.get("note") or "")
     disclosed = _first_hit(s.agent, NO_BOOKING_DISCLOSURE) is not None
 
     if status == "available":
-        story = f"{restaurant} had {requested} open on {day} for {party}; the agent "
+        story = f"{restaurant} had {requested} open{on_day}{f' for {party}' if party else ''}; "
         story += (
-            "made clear nothing was booked and pointed the caller to the restaurant or the app"
+            "the agent made clear nothing was booked and pointed the caller to the restaurant "
+            "or the app"
             if disclosed
-            else "relayed it"
+            else "the agent relayed it"
         )
     elif status == "alternatives":
         offered = _join([_clock(t) for t in times])
@@ -566,14 +586,15 @@ def _check_story(s: _Signals) -> str:
         else:
             story += ", but the caller didn't pick one"
     elif "directly with the restaurant" in note:
+        size = f"parties of {party}" if party else "a party that size"
         story = (
-            f"{restaurant} doesn't take parties of {party} online, so the agent sent the caller "
+            f"{restaurant} doesn't take {size} online, so the agent sent the caller "
             "to the restaurant directly"
         )
     elif status == "closed":
-        story = f"{restaurant} is closed on {day}, so there was nothing to offer"
+        story = f"{restaurant} is closed{on_day}, so there was nothing to offer"
     else:
-        story = f"{restaurant} had nothing open near {requested} on {day}"
+        story = f"{restaurant} had nothing open near {requested}{on_day}"
     if any(call.is_error for call, _, _ in s.checks):
         story = f"After a failed first check, {story}"
     return story

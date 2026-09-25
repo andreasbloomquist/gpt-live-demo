@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from call_analyzer.api import create_app
 from call_analyzer.config import ConfigurationError, Settings
+from call_analyzer.models import CallRecord
 from tests.factories import demo_files, record_dict
 
 TOKEN = "test-token-0123456789abcdef"
@@ -235,3 +236,70 @@ def test_unexpected_errors_return_clean_json(tmp_path: Path) -> None:
 def test_startup_fails_fast_without_a_usable_token(tmp_path: Path, token: str | None) -> None:
     with pytest.raises(ConfigurationError, match="CALL_ANALYZER_TOKEN"):
         create_app(settings_for(tmp_path, api_token=token))
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_schema_docs_are_opt_in(tmp_path: Path, enabled: bool) -> None:
+    app = create_app(settings_for(tmp_path, enable_docs=enabled))
+    with TestClient(app) as test_client:
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            assert test_client.get(path).status_code == (200 if enabled else 404)
+
+
+def test_stored_record_is_served_without_revalidation(client: TestClient) -> None:
+    record = record_dict()
+    client.post("/v1/calls", headers=AUTH, json=record)
+    wait_until_analyzed(client, record["call_id"])
+    body = client.get(f"/v1/calls/{record['call_id']}", headers=AUTH).json()
+    # Same shape as before: the normalized record, as the CallRecord model serializes it.
+    assert body["record"] == CallRecord.model_validate(record).model_dump(mode="json")
+    assert body["analysis"]["status"] == "done"
+
+    # A row that a (hypothetically) stricter model would reject still reads back fine.
+    repo = client.app.state.repo  # type: ignore[attr-defined]
+    legacy = json.dumps({**body["record"], "started_at": "0999-01-01T00:00:00Z"})
+
+    async def rewrite() -> None:
+        await repo._run(lambda conn: conn.execute("UPDATE calls SET record_json = ?", (legacy,)))
+
+    client.portal.call(rewrite)  # type: ignore[union-attr]
+    response = client.get(f"/v1/calls/{record['call_id']}", headers=AUTH)
+    assert response.status_code == 200
+    assert response.json()["record"]["started_at"] == "0999-01-01T00:00:00Z"
+
+
+async def test_client_disconnect_mid_body_is_not_a_server_error(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    app = create_app(settings_for(tmp_path))
+    incoming = [
+        {"type": "http.request", "body": b'{"schema_version": 1', "more_body": True},
+        {"type": "http.disconnect"},
+    ]
+    sent: list[dict[str, Any]] = []
+
+    async def receive() -> dict[str, Any]:
+        return incoming.pop(0)
+
+    async def send(message: dict[str, Any]) -> None:
+        sent.append(message)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/v1/calls",
+        "raw_path": b"/v1/calls",
+        "query_string": b"",
+        "root_path": "",
+        "headers": [(b"authorization", f"Bearer {TOKEN}".encode())],
+        "client": ("127.0.0.1", 1234),
+        "server": ("testserver", 80),
+    }
+    with caplog.at_level("INFO"):
+        await app(scope, receive, send)  # must not raise
+    start = next(m for m in sent if m["type"] == "http.response.start")
+    assert start["status"] == 400
+    assert "unhandled error" not in caplog.text

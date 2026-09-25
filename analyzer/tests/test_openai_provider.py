@@ -120,6 +120,19 @@ async def test_reasoning_effort_is_omitted_when_unset(rubric: Rubric) -> None:
     assert "reasoning_effort" not in bodies[0]
 
 
+async def test_max_tokens_param_is_configurable(rubric: Rubric) -> None:
+    # For OpenAI-compatible servers that only know the legacy `max_tokens` name.
+    bodies: list[dict[str, Any]] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        bodies.append(json.loads(request.content))
+        return httpx2.Response(200, json=completion(assessment_json()))
+
+    await assess(provider_with(handler, max_tokens_param="max_tokens"), rubric)
+    assert bodies[0]["max_tokens"] == 4000
+    assert "max_completion_tokens" not in bodies[0]
+
+
 async def test_rate_limit_is_retried_by_the_sdk_then_succeeds(rubric: Rubric) -> None:
     calls = 0
 

@@ -20,7 +20,7 @@ from typing import Any
 import openai
 import pydantic
 
-from ..config import ConfigurationError, Settings
+from ..config import ConfigurationError, MaxTokensParam, Settings
 from ..models import AssessmentDraft, CallRecord, Metrics, ProviderName
 from ..prompt import build_prompt
 from ..rubric import Rubric
@@ -58,12 +58,14 @@ class OpenAIProvider:
         max_prompt_chars: int,
         max_output_tokens: int,
         reasoning_effort: str | None = None,
+        max_tokens_param: MaxTokensParam = "max_completion_tokens",
     ) -> None:
         self._client = client
         self.model = model
         self._max_prompt_chars = max_prompt_chars
         self._max_output_tokens = max_output_tokens
         self._reasoning_effort = reasoning_effort
+        self._max_tokens_param = max_tokens_param
 
     @classmethod
     def from_settings(cls, settings: Settings) -> OpenAIProvider:
@@ -85,6 +87,7 @@ class OpenAIProvider:
             max_prompt_chars=settings.max_prompt_chars,
             max_output_tokens=settings.max_output_tokens,
             reasoning_effort=settings.reasoning_effort,
+            max_tokens_param=settings.max_tokens_param,
         )
 
     async def assess(self, record: CallRecord, metrics: Metrics, rubric: Rubric) -> AssessmentDraft:
@@ -94,7 +97,7 @@ class OpenAIProvider:
                 "call too long for prompt budget; trimmed middle",
                 extra={"call_id": record.call_id, "omitted_items": prompt.omitted_items},
             )
-        extra: dict[str, Any] = {}
+        extra: dict[str, Any] = {self._max_tokens_param: self._max_output_tokens}
         if self._reasoning_effort is not None:
             extra["reasoning_effort"] = self._reasoning_effort
         try:
@@ -105,7 +108,6 @@ class OpenAIProvider:
                     {"role": "user", "content": prompt.user},
                 ],
                 response_format=AssessmentDraft,
-                max_completion_tokens=self._max_output_tokens,
                 **extra,
             )
         except openai.RateLimitError as exc:

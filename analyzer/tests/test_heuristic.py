@@ -156,3 +156,24 @@ async def test_punctuation_only_turns_can_be_quoted(heuristic_analyzer: CallAnal
     data["turns"][0] |= {"text": "?" * 300, "interrupted": True}
     analysis = await heuristic_analyzer.analyze(make_record(**data))
     assert analysis.status == "done"
+
+
+async def test_missing_tool_fields_never_read_as_none(heuristic_analyzer: CallAnalyzer) -> None:
+    data = record_dict()
+    data["tool_calls"][0] |= {"arguments": "{}", "output": '{"status":"available"}'}
+    analysis = await heuristic_analyzer.analyze(make_record(**data))
+    assert analysis.summary is not None and "None" not in analysis.summary
+    assert analysis.caller_intent is not None and "None" not in analysis.caller_intent
+    assert "?" not in analysis.caller_intent
+
+
+async def test_unreadable_tool_output_is_not_called_a_failure(
+    heuristic_analyzer: CallAnalyzer,
+) -> None:
+    data = record_dict()
+    data["tool_calls"][0]["output"] = "[1, 2]"  # not an error, just not a JSON object
+    analysis = await heuristic_analyzer.analyze(make_record(**data))
+    assert analysis.summary is not None and "failed" not in analysis.summary
+    assert "couldn't be read" in analysis.summary
+    assert analysis.outcome is not None and analysis.outcome.status != "unresolved"
+    assert not [f for f in analysis.flags if f.type == "tool_failure"]

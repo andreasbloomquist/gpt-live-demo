@@ -91,7 +91,9 @@ with tool outputs produced by the agent's own mock reservation provider:
 ## HTTP API
 
 All `/v1` routes require `Authorization: Bearer $CALL_ANALYZER_TOKEN`. All bodies are JSON.
-Interactive schema docs are served at `/docs`.
+Interactive schema docs (`/docs`, `/redoc`, `/openapi.json`) are **off by default**, because
+they map the API for anyone who can reach the port; set `ANALYZER_ENABLE_DOCS=true` to serve them
+(unauthenticated) during development.
 
 ```bash
 export URL=http://127.0.0.1:8080
@@ -110,7 +112,7 @@ Every error has the same shape, never includes a stack trace, and never echoes s
 
 | Status | `code` | When |
 |---|---|---|
-| 400 | `bad_request` | Invalid `cursor` (a malformed `Content-Length` is rejected by uvicorn itself, as plain text) |
+| 400 | `bad_request` | Invalid `cursor`; client disconnected mid-upload. (A malformed `Content-Length` is rejected by uvicorn itself, as plain text.) |
 | 401 | `unauthorized` | Missing/wrong bearer token (with `WWW-Authenticate: Bearer`) |
 | 404 | `not_found` | Unknown `call_id` |
 | 409 | `conflict` | A *different* record was already stored under this `call_id` |
@@ -232,7 +234,8 @@ results without fetching each call.
 
 ### `GET /v1/calls/{call_id}` - one call with its analysis
 
-Returns `{"record": CallRecord, "analysis": Analysis}`. Real output for the frustrated demo call
+Returns `{"record": CallRecord, "analysis": Analysis}`. The record is served exactly as stored
+(it was validated and normalized at ingest), so tightening the model later never breaks old calls. Real output for the frustrated demo call
 (heuristic provider; scores and sentiment trimmed for length):
 
 ```json
@@ -396,8 +399,10 @@ reasoning tokens (and latency) down.
 | vLLM / LiteLLM | `http://<host>:<port>/v1` | Structured output support varies by backend |
 
 For non-reasoning models, or servers that reject the parameter, set `ANALYZER_REASONING_EFFORT=`
-(empty). If a server ignores the JSON schema, answers that don't parse are treated as malformed
-and retried, then failed with a clear error.
+(empty). Servers that reject `max_completion_tokens` (OpenAI's current name for the output cap;
+some older vLLM, Ollama or LiteLLM setups only know `max_tokens`) work with
+`ANALYZER_MAX_TOKENS_PARAM=max_tokens`. If a server ignores the JSON schema, answers that don't
+parse are treated as malformed and retried, then failed with a clear error.
 
 **Prompt-injection defenses.** The transcript and tool outputs (which carry web content) are
 untrusted. (1) Each turn and tool call is serialized as one JSON object per line, so text can't
@@ -449,6 +454,12 @@ keys and as a sanity baseline for the LLM.
   ([`storage.py`](call_analyzer/storage.py)); a Postgres implementation would use
   `SELECT ... FOR UPDATE SKIP LOCKED` to claim jobs and could then run several replicas.
 
+- **Logs never contain transcripts.** Log lines carry ids, counts and durations. Exceptions,
+  including the ones uvicorn would log for a crashed request, are written with their type, stack
+  frames and (for validation errors) field locations only, never their message: a pydantic
+  error quotes its input, which here is caller speech. The API catches unexpected errors itself,
+  so none reach uvicorn's own error logging.
+
 ## Configuration
 
 Environment variables (or `analyzer/.env`; see [`.env.example`](.env.example)):
@@ -464,6 +475,7 @@ Environment variables (or `analyzer/.env`; see [`.env.example`](.env.example)):
 | `ANALYZER_BASE_URL` | *(OpenAI)* | Any OpenAI-compatible endpoint |
 | `ANALYZER_MODEL` | `gpt-5.4-mini` | Judge model |
 | `ANALYZER_REASONING_EFFORT` | `low` | Empty to omit (non-reasoning models) |
+| `ANALYZER_MAX_TOKENS_PARAM` | `max_completion_tokens` | Or `max_tokens`, for servers that only accept that name |
 | `ANALYZER_MAX_OUTPUT_TOKENS` | `8000` | Includes reasoning tokens |
 | `ANALYZER_TIMEOUT_S` | `60` | Per request |
 | `ANALYZER_SDK_RETRIES` | `2` | Request-level retries inside the SDK |
@@ -473,7 +485,8 @@ Environment variables (or `analyzer/.env`; see [`.env.example`](.env.example)):
 | `ANALYZER_RETRY_BASE_S` | `30` | Backoff base (doubles per attempt, max 30 min) |
 | `ANALYZER_JOB_TIMEOUT_S` | `300` | Hard cap per analysis |
 | `ANALYZER_POLL_INTERVAL_S` | `2` | Idle poll interval |
-| `LOG_LEVEL` | `INFO` | Logs carry ids and counts, never transcript text |
+| `ANALYZER_ENABLE_DOCS` | `false` | Serve `/docs`, `/redoc`, `/openapi.json` (unauthenticated) |
+| `LOG_LEVEL` | `INFO` | `DEBUG` \| `INFO` \| `WARNING` \| `ERROR` \| `CRITICAL`. Logs carry ids and counts, never transcript text (see below) |
 
 ## Docker
 
@@ -491,8 +504,14 @@ docker run --rm -v analyzer-data:/data -e ANALYZER_PROVIDER=heuristic call-analy
 
 Multi-stage build with `uv sync --locked` (the lockfile is the source of truth), no build tools
 or `uv` in the final image, runs as an unprivileged user, data on a `/data` volume, and a
-`HEALTHCHECK` on `/healthz`. Run **one** container per database: the worker is in-process and
-SQLite has a single writer.
+`HEALTHCHECK` on `/healthz` (in Python, since slim images have no curl; it follows
+`ANALYZER_PORT`). Run **one** container per database: the worker is in-process and SQLite has a
+single writer.
+
+The base image is pinned by tag (`python:3.12-slim-bookworm`), which still moves with security
+patches. For reproducible production builds, pin it by digest:
+`docker build --build-arg PYTHON_IMAGE=python:3.12-slim-bookworm@sha256:<digest> .` (get the digest
+with `docker buildx imagetools inspect python:3.12-slim-bookworm`), and bump it deliberately.
 
 ## Trade-offs and limitations
 
@@ -518,6 +537,10 @@ SQLite has a single writer.
   endpoint you configure. A real deployment needs a retention policy, deletion, access logging,
   and a data-processing agreement with the LLM provider (or a self-hosted judge).
 - **Re-analysis replaces the previous result** rather than keeping a history of verdicts.
+- **A shutdown can strand one claimed job until the next start.** If the process is stopped in
+  the instant between a worker claiming a job (the row is already `running`, attempt charged)
+  and receiving it, the job isn't handed back; the next startup's recovery re-queues it. In the
+  worst case this uses up one of its `ANALYZER_MAX_ATTEMPTS` early.
 
 ## Development
 

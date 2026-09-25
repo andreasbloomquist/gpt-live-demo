@@ -3,6 +3,8 @@
 #   docker build -t call-analyzer .
 #   docker run --rm -p 8080:8080 -e CALL_ANALYZER_TOKEN=... -v analyzer-data:/data call-analyzer
 
+# For reproducible production builds, pin by digest (see README "Docker"), e.g.
+#   --build-arg PYTHON_IMAGE=python:3.12-slim-bookworm@sha256:<digest>
 ARG PYTHON_IMAGE=python:3.12-slim-bookworm
 
 # --- build: resolve the locked environment with uv ---------------------------------------------
@@ -37,6 +39,7 @@ WORKDIR /app
 USER analyzer
 VOLUME ["/data"]
 EXPOSE 8080
+# Python instead of curl (not in slim images); follows ANALYZER_PORT if it's overridden at run time.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)"]
+    CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/healthz' % os.environ.get('ANALYZER_PORT', '8080'), timeout=2)"]
 CMD ["python", "-m", "call_analyzer", "serve"]
