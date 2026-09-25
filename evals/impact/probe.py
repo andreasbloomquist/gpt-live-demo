@@ -9,7 +9,7 @@ A subprocess (rather than importlib tricks) guarantees the two trees never share
 and lets an old/broken base tree fail in isolation: any exception becomes ``{"ok": false}``
 and the detector falls back to "everything changed".
 
-Both trees' tools are serialised by the planner's own ``evals.toolschema`` (via
+Both trees' tools are serialized by the planner's own ``evals.toolschema`` (via
 ``--evals-root``), never the tree's copy: the *same* converter is what makes their schemas
 comparable.
 
@@ -94,7 +94,7 @@ def probe(tree: Path) -> dict[str, Any]:
             result["profile_errors"][profile] = f"{type(exc).__name__}: {exc}"
             continue
         result["profiles"][profile] = {
-            # The greeting is spoken by the voice model: it is voice-side behaviour too.
+            # The greeting is spoken by the voice model: it is voice-side behavior too.
             "voice": _with_greeting(bundle.voice_instructions, getattr(bundle, "greeting", None)),
             "backend": bundle.backend_instructions,
             "tools": list(bundle.tools),

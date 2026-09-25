@@ -7,7 +7,7 @@ The SDK's ``parse`` helper derives a strict JSON schema from our pydantic model 
 answer back into it, so there is no hand-written schema to drift.
 
 Retries happen at two levels on purpose. The SDK retries individual requests (429, 5xx,
-timeouts; it honours ``Retry-After``) with short backoff. If that still fails, we raise a
+timeouts; it honors ``Retry-After``) with short backoff. If that still fails, we raise a
 retryable :class:`ProviderError` and the worker re-queues the whole job minutes later, which
 survives restarts and rides out longer rate-limit windows without holding a worker slot.
 """

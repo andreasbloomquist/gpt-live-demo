@@ -18,9 +18,9 @@ class PlannedRun:
     tier: Tier
     reasons: list[str]
     fingerprint: str
-    """Behavioural fingerprint of (suite, tier) at head: a hash of every component that can
+    """Behavioral fingerprint of (suite, tier) at head: a hash of every component that can
     affect it. Two commits with equal fingerprints get equal eval results (modulo sampling),
-    so it doubles as a cache key for "already evaluated this exact behaviour"."""
+    so it doubles as a cache key for "already evaluated this exact behavior"."""
 
 
 @dataclass(frozen=True)
@@ -192,7 +192,7 @@ def make_plan(
             plan.runs.append(PlannedRun(info.name, tier, reasons, fingerprint))
         else:
             plan.skipped.append(
-                SkippedRun(info.name, tier, "no behaviour-affecting change for this tier")
+                SkippedRun(info.name, tier, "no behavior-affecting change for this tier")
             )
 
     for name in sorted(set(base.suites) - set(head.suites)):
@@ -208,7 +208,7 @@ def fast_path_plan(
     changed_files: list[str],
     overrides: Overrides,
 ) -> Plan | None:
-    """Skip all work when no changed file can possibly affect behaviour (docs, frontend, CI).
+    """Skip all work when no changed file can possibly affect behavior (docs, frontend, CI).
 
     Returns ``None`` when the full semantic comparison is needed.
     """
@@ -216,7 +216,7 @@ def fast_path_plan(
         return None
     plan = Plan(base=base_ref, head=head_ref, changed_files=changed_files)
     reason = overrides.skip_all or (
-        f"no behaviour-relevant files changed ({len(changed_files)} file(s): "
+        f"no behavior-relevant files changed ({len(changed_files)} file(s): "
         + ", ".join(changed_files[:5])
         + (" …" if len(changed_files) > 5 else "")
         + ")"

@@ -308,8 +308,10 @@ Each component gets the same five questions: **role**, **why we chose it**, **be
   `SecretStr` and optional, so imports, tests, and evals never need keys. `runtime.py` computes
   `today` (for example `Friday, 2026-09-25`) and `timezone` in `AGENT_TIMEZONE`. `main.py`
   handles the observability side:
-  - it tags every log line from the job with `profile` and `prompt_fingerprint`;
-  - it logs the composed modules and the per-target fingerprints;
+  - it tags every log line from the job with `profile` and `prompt_version` (the 12-character
+    fingerprint);
+  - it logs the composed modules, the full `prompt_fingerprint`, and the per-brain
+    `voice_version` / `backend_version`;
   - it logs usage as it accrues and as a summary at shutdown;
   - it publishes `prompt.*` participant attributes.
 - **Why.** Missing keys and invalid settings (an unknown `AGENT_TIMEZONE`, an analyzer URL

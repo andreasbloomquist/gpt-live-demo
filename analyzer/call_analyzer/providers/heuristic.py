@@ -471,7 +471,7 @@ def _score_policy(s: _Signals, answer_evidence: list[EvidenceDraft]) -> Dimensio
 
 
 def _dim(score: int, rationale: str, evidence: list[EvidenceDraft]) -> DimensionDraft:
-    """A dimension draft with the score kept on the 1-5 scale and the rationale labelled."""
+    """A dimension draft with the score kept on the 1-5 scale and the rationale labeled."""
     return DimensionDraft(
         score=max(1, min(5, score)), rationale=f"Heuristic: {rationale}", evidence=evidence
     )

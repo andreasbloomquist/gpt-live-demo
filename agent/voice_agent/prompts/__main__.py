@@ -16,7 +16,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from .composer import DEFAULT_PROMPTS_DIR, PromptComposer, PromptCompositionError, Target
+from .composer import PromptComposer, PromptCompositionError, Target
 
 
 def _parse_vars(pairs: Sequence[str]) -> dict[str, str]:
@@ -34,7 +34,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI; returns the process exit status."""
     parser = argparse.ArgumentParser(prog="python -m voice_agent.prompts")
     parser.add_argument(
-        "--prompts-dir", type=Path, default=DEFAULT_PROMPTS_DIR, help="prompts directory"
+        "--prompts-dir",
+        type=Path,
+        default=None,
+        help="prompts directory (default: $PROMPTS_DIR, else the repo's prompts/)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("list", help="list profiles")

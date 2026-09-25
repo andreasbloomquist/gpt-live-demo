@@ -6,7 +6,7 @@ Run it with the built-in CLI subcommands::
     uv run voice-agent dev       # connect to LiveKit (no hot reload; use `lk agent dev` for that)
     uv run voice-agent start     # production worker
 
-LiveKit Agents 1.8 marks that built-in Python CLI as deprecated in favour of the LiveKit CLI
+LiveKit Agents 1.8 marks that built-in Python CLI as deprecated in favor of the LiveKit CLI
 (``lk agent console|dev|start``, or ``python -m livekit.agents start agent/voice_agent/main.py``),
 which discovers the module-level ``server`` global. Both paths run the same code.
 
@@ -44,7 +44,7 @@ import os
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 from livekit.agents import (
     AgentServer,
     AgentSession,
@@ -53,16 +53,19 @@ from livekit.agents import (
     SessionUsageUpdatedEvent,
 )
 from livekit.agents import cli as lk_cli
+from pydantic import SecretStr
 
 from .agent import VoiceAgent
-from .config import Settings, get_settings
+from .config import ConfigurationError, Settings, get_settings
 from .model import build_gpt_live_model
 from .prompts import PromptBundle, PromptComposer
 from .recording import CallRecordExporter, build_call_record, new_call_id
 from .runtime import runtime_prompt_variables
 from .tools import resolve_tools
 
-load_dotenv()
+# Same `.env` that Settings reads (the working directory), so LiveKit's own variables and ours
+# always come from one file. Without `usecwd`, python-dotenv searches upward from this module.
+load_dotenv(find_dotenv(usecwd=True))
 
 DEFAULT_AGENT_NAME = "gpt-live-agent"
 # LiveKit reads LIVEKIT_AGENT_NAME when the session is registered below (the in-code
@@ -91,14 +94,52 @@ def compose_session_prompts(
     )
 
 
+# Values shipped in the example env files. Starting with one of them can never work, and without
+# this check the worker would retry the LiveKit connection instead of saying what's wrong.
+_EXAMPLE_PLACEHOLDERS: dict[str, str] = {
+    "LIVEKIT_URL": "wss://your-project.livekit.cloud",
+    "LIVEKIT_API_KEY": "your_livekit_api_key",
+    "LIVEKIT_API_SECRET": "your_livekit_api_secret",
+    "OPENAI_API_KEY": "sk-your-openai-api-key",
+    "CALL_ANALYZER_TOKEN": "change-me-shared-secret",
+}
+
+
+_LIVEKIT_ENV_VARS = ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET")
+
+
+def _placeholder_settings(settings: Settings) -> list[str]:
+    """Names of settings still holding a value copied verbatim from ``.env.example``."""
+    configured = {
+        # LiveKit reads its credentials straight from the environment, not from Settings.
+        **{
+            name: os.environ.get(name)
+            for name in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET")
+        },
+        "OPENAI_API_KEY": _secret(settings.openai_api_key),
+        "CALL_ANALYZER_TOKEN": _secret(settings.call_analyzer_token),
+    }
+    return [name for name, value in configured.items() if value == _EXAMPLE_PLACEHOLDERS[name]]
+
+
+def _secret(value: SecretStr | None) -> str | None:
+    return value.get_secret_value() if value is not None else None
+
+
 def preflight(settings: Settings) -> None:
     """Fail fast on configuration a session would trip over.
 
-    Raises :class:`~voice_agent.config.ConfigurationError` (missing key, analyzer URL without
-    token), :class:`~voice_agent.prompts.PromptCompositionError` (bad profile or manifest), or
-    :class:`~voice_agent.tools.UnknownToolError` (profile names an unregistered tool). Builds
-    nothing that holds connections; it only runs the same checks the entrypoint does.
+    Raises :class:`~voice_agent.config.ConfigurationError` (missing or placeholder key,
+    analyzer URL without token), :class:`~voice_agent.prompts.PromptCompositionError` (bad
+    profile or manifest), or :class:`~voice_agent.tools.UnknownToolError` (profile names an
+    unregistered tool). Builds nothing that holds connections; it only runs the same checks
+    the entrypoint does, plus one for values left over from ``.env.example``.
     """
+    if placeholders := _placeholder_settings(settings):
+        raise ConfigurationError(
+            "these settings still have their example values from .env.example: "
+            f"{', '.join(placeholders)}. Replace them with your real credentials."
+        )
     bundle = compose_session_prompts(settings=settings)
     resolve_tools(bundle.tools, settings)
     settings.require_openai_api_key()

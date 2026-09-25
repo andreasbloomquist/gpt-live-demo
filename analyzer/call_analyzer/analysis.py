@@ -20,7 +20,7 @@ Division of labour:
   - Sentiment values are clamped to [-1, 1] (it's a continuous signal, clamping is harmless)
     and kept only for existing caller turns.
   - Flags citing an unknown turn keep their detail but lose the turn reference.
-    ``tool_failure``/``long_silence`` flags from the provider are dropped in favour of the
+    ``tool_failure``/``long_silence`` flags from the provider are dropped in favor of the
     deterministic ones.
   - Free text is trimmed to bounded lengths so one verbose answer can't bloat storage or the UI.
 """

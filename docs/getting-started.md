@@ -80,8 +80,9 @@ at session start. See [`modular-prompts.md`](modular-prompts.md).
 ## 4. Run the tests (free, no keys, no network)
 
 ```bash
-uv run pytest               # agent/tests + evals/tests
+uv run pytest                           # agent/tests + evals/tests
 uv run ruff check .
+uv run mypy agent/voice_agent evals     # the typecheck CI runs
 ```
 
 The full run takes a minute or two, most of it in the eval change detector's tests, which build
@@ -113,7 +114,8 @@ Things to notice:
 - the spoken filler while a lookup runs;
 - times said as words, not "19:00";
 - the agent never claims to have booked anything;
-- the `composed prompts` log line with `prompt_fingerprint`.
+- the `composed prompts` log line with `prompt_fingerprint`, and `prompt_version` on every line
+  after it.
 
 `uv run voice-agent ...` uses LiveKit's built-in Python CLI, which is **deprecated in 1.8**:
 `console` and `dev` print a notice such as "console mode is deprecated and will be removed in a
@@ -196,9 +198,9 @@ A third, CLI-free way to run the same worker:
 The worker checks its configuration before it registers. If something is wrong (no
 `OPENAI_API_KEY`, an unknown `AGENT_TIMEZONE`, `CALL_ANALYZER_URL` without a token), it exits
 straight away with `voice-agent: invalid configuration, not starting: <reason>` instead of taking
-calls it can't serve. The check is for presence, not validity: with the placeholder keys from
-`.env.example` the worker starts and then logs `failed to connect to livekit, retrying` until it
-gives up.
+calls it can't serve. It also refuses values copied unchanged from `.env.example`. It can't tell
+whether a real-looking key is *valid*, though: a wrong key gets past it, and the worker then logs
+`failed to connect to livekit, retrying` (see Troubleshooting).
 
 ### 7b. Start the frontend
 
@@ -335,7 +337,7 @@ CMD ["uv", "run", "--no-sync", "voice-agent", "start"]
 - a retention and deletion policy for transcripts in the analyzer (and any `.call-records/`
   fallback files on workers), and a data-processing agreement with your judge provider;
 - `max_session_duration` and an idle policy (per-minute billing);
-- where logs go (the prompt fingerprint is on every line);
+- where logs go (`prompt_version` is on every line of a call);
 - which evals gate a deploy ([`evals.md`](evals.md)).
 
 ---
@@ -346,7 +348,7 @@ CMD ["uv", "run", "--no-sync", "voice-agent", "start"]
 |---|---|---|
 | Live view stuck on "Connecting to Ava…", or "Ava couldn't join" | Dispatch mismatch: the frontend's `LIVEKIT_AGENT_NAME` is empty while the worker registered `gpt-live-agent`, or the reverse. | Set `LIVEKIT_AGENT_NAME=gpt-live-agent` in `frontend/.env.local` (or empty on both sides). Restart both. |
 | Same, and the names match | The worker isn't running, or it's connected to a different LiveKit project or URL. | Check the worker log for a successful registration. Compare `LIVEKIT_URL` and keys in both env files. |
-| Worker log repeats `failed to connect to livekit, retrying in …s` with `401` or `403` | `LIVEKIT_URL`, `LIVEKIT_API_KEY` or `LIVEKIT_API_SECRET` is still a placeholder, or belongs to another project. | Copy the values from LiveKit Cloud (Settings → Keys) or use the `livekit-server --dev` values. |
+| Worker log repeats `failed to connect to livekit, retrying in …s` with `401` or `403` | `LIVEKIT_URL`, `LIVEKIT_API_KEY` or `LIVEKIT_API_SECRET` is wrong or belongs to another project. | Copy the values from LiveKit Cloud (Settings → Keys) or use the `livekit-server --dev` values. |
 | Worker exits at startup with `voice-agent: invalid configuration, not starting: …` | The preflight check found a problem before registering with LiveKit. The reason follows the colon: `OPENAI_API_KEY is not set`, `CALL_ANALYZER_URL is set but CALL_ANALYZER_TOKEN is not`, an unknown `AGENT_TIMEZONE`, a bad profile or tool. | Fix that setting in `.env` (the worker reads `.env` from the directory you start it in) and start again. |
 | `... RESTAURANT_PROVIDER=opentable needs OPENTABLE_CLIENT_ID ...` at startup | OpenTable selected without credentials. | Add the credentials or set `RESTAURANT_PROVIDER=mock`. |
 | `PromptCompositionError: ...` at startup or in tests | A module or manifest edit broke a rule (undeclared variable, wrong target, missing tool). | Run `uv run python -m voice_agent.prompts render <profile>`; the message names the module and rule. |

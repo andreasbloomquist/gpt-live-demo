@@ -14,7 +14,7 @@ cases:
   - id: explicit_request
     description: >-
       All slots given in one utterance; the relative date must be resolved against the
-      injected `today` and the time normalised to 24h.
+      injected `today` and the time normalized to 24h.
     user: Is there a table for four at Nopa tomorrow at 7pm?
     expect:
       tool_calls:

@@ -131,7 +131,7 @@ def load_suite_infos(tree: Path) -> dict[str, SuiteInfo]:
 
 def _source_files(tree: Path, rel_dir: str) -> list[str]:
     """Every file under ``rel_dir``, not only ``.py``: a data file a module reads (fixtures, a
-    JSON table) is behaviour too. Bytecode and hidden files (``.DS_Store``) are skipped."""
+    JSON table) is behavior too. Bytecode and hidden files (``.DS_Store``) are skipped."""
     root = tree / rel_dir
     if not root.is_dir():
         return []

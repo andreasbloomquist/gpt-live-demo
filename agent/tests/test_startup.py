@@ -83,6 +83,17 @@ def test_preflight_requires_openai_key() -> None:
         main.preflight(make_settings())
 
 
+def test_preflight_rejects_values_copied_from_env_example(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LIVEKIT_API_KEY", "your_livekit_api_key")
+    with pytest.raises(ConfigurationError) as excinfo:
+        main.preflight(make_settings(openai_api_key="sk-your-openai-api-key"))
+    message = str(excinfo.value)
+    assert "OPENAI_API_KEY" in message and "LIVEKIT_API_KEY" in message
+    assert "sk-your-openai-api-key" not in message  # names only, never values
+
+
 def test_preflight_checks_analyzer_config_only_when_recording() -> None:
     half_configured = {"openai_api_key": "sk-test", "call_analyzer_url": "http://a.test"}
     with pytest.raises(ConfigurationError, match="CALL_ANALYZER_TOKEN"):

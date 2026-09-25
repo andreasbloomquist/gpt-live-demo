@@ -280,7 +280,8 @@ name, and `test_every_profile_composes` asserts every profile's tools are regist
 `fingerprint = sha256(json({voice, backend, sorted(tools), greeting}))`, computed over the
 **placeholder-rendered, normalized** text. The bundle also carries per-target fingerprints:
 `fingerprint_for("voice")` (voice text plus greeting) and `fingerprint_for("backend")`.
-`bundle.version` is the first 12 hex characters.
+`bundle.version` is the first 12 hex characters of the overall fingerprint, and
+`short_fingerprint_for(target)` shortens a per-target one the same way (for logs and UI).
 
 | Changes the fingerprint | Doesn't |
 |---|---|
@@ -321,10 +322,11 @@ backend      e3ad63e9c465…
    Frontends, recordings, egress, and webhooks can read them (for example via
    `participant.attributes` in any LiveKit client SDK), so a bug report can include the exact
    prompt version.
-2. **Logs.** Every log line from the job carries `profile` and `prompt_fingerprint` (through
-   `ctx.log_context_fields`). The `composed prompts` line lists the modules, tools, per-target
-   fingerprints, and `today`. The shutdown `session usage` line repeats the version, so cost can
-   be grouped by prompt version.
+2. **Logs.** Every log line from the job carries `profile` and `prompt_version` (through
+   `ctx.log_context_fields`). The `composed prompts` line adds the full `prompt_fingerprint`, the
+   per-brain `voice_version` / `backend_version`, the modules, the tools, and `today`. The
+   shutdown `session usage` line repeats `prompt_version`, so cost can be grouped by prompt
+   version.
 3. **Evals.** The change-impact detector composes every profile on the base and head commits
    with the same composer and compares per-target fingerprints. Roughly: a voice-only change
    re-runs the voice tier, and a backend or tool-list change re-runs brain and voice. A comment

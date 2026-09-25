@@ -1,4 +1,4 @@
-"""Fixtures: throwaway git repositories that mirror this repo's behaviour-relevant layout.
+"""Fixtures: throwaway git repositories that mirror this repo's behavior-relevant layout.
 
 The template repo is built once per session from the *real* ``agent/``, ``prompts/``,
 ``evals/`` and ``uv.lock`` (so the detector is exercised against the real PromptComposer and

@@ -1,7 +1,7 @@
-"""Canonical forms used for fingerprinting. Each one answers: *could this edit change behaviour?*
+"""Canonical forms used for fingerprinting. Each one answers: *could this edit change behavior?*
 
 Every normalizer here errs toward "changed" when unsure: a false positive costs a few cents of
-evals, a false negative ships an untested behaviour change.
+evals, a false negative ships an untested behavior change.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ import yaml
 
 
 def digest(value: Any) -> str:
-    """Short, stable sha256 of any JSON-serialisable value (dict keys sorted)."""
+    """Short, stable sha256 of any JSON-serializable value (dict keys sorted)."""
     if not isinstance(value, str):
         value = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
@@ -38,7 +38,7 @@ _FENCE = re.compile(r"^(?:```|~~~)")
 
 
 def normalize_prompt_for_fingerprint(text: str) -> str:
-    """Reduce a *rendered* prompt to the tokens that can plausibly change model behaviour.
+    """Reduce a *rendered* prompt to the tokens that can plausibly change model behavior.
 
     Input is the prompt exactly as sent to the model (the composer has already removed HTML
     comments). This goes further and is only used for change detection, never for what is sent:
@@ -155,7 +155,7 @@ def _is_settings_class(node: ast.ClassDef) -> bool:
 def settings_fields(source: str) -> tuple[dict[str, str], str]:
     """Split a settings module into ``({field: normalized annotation+default}, rest)``.
 
-    Model names, voice, reasoning effort… are *behaviour* and are compared field-by-field so the
+    Model names, voice, reasoning effort… are *behavior* and are compared field-by-field so the
     detector can route e.g. a ``gpt_live_voice`` change to the voice tier only. Everything else
     in the module (validators, helper methods) becomes one opaque "config logic" fingerprint.
     Defaults are compared as normalized AST, so ``"low"`` → ``'low'`` or re-wrapping a

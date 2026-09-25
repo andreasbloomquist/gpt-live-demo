@@ -70,7 +70,8 @@ def _default_prompts_dir() -> Path:
 
 
 DEFAULT_PROMPTS_DIR: Path = _default_prompts_dir()
-"""Repo-root ``prompts/`` directory, or ``$PROMPTS_DIR`` when set (resolved at import time)."""
+"""The prompts directory as of import time. ``PromptComposer()`` re-resolves it on construction,
+so a ``PROMPTS_DIR`` loaded from ``.env`` after import still takes effect."""
 
 _VAR_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
 _VAR_NAME_RE = re.compile(_VAR_NAME)
@@ -192,8 +193,8 @@ class PromptBundle:
 class PromptComposer:
     """Loads ``manifest.yaml`` + modules from a prompts directory and composes profiles."""
 
-    def __init__(self, prompts_dir: Path | str = DEFAULT_PROMPTS_DIR) -> None:
-        self.prompts_dir = Path(prompts_dir)
+    def __init__(self, prompts_dir: Path | str | None = None) -> None:
+        self.prompts_dir = Path(prompts_dir) if prompts_dir is not None else _default_prompts_dir()
         self.modules_dir = self.prompts_dir / "modules"
         self._manifest = self._load_manifest()
         self._module_cache: dict[str, PromptModule] = {}

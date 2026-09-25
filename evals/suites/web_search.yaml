@@ -2,7 +2,7 @@
 #
 # When to reach for web search (fresh facts) vs. answer directly (stable knowledge), and how
 # search results get turned into something speakable. Web search runs server-side on the
-# backend Responses model, so these evals hit the live web: rubrics check *behaviour*
+# backend Responses model, so these evals hit the live web: rubrics check *behavior*
 # (grounded, brief, attributed), never specific facts that change daily.
 name: web_search
 description: Uses web search for time-sensitive questions; answers stable facts directly.

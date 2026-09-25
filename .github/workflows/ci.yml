@@ -1,7 +1,7 @@
 # Free, key-less checks on every PR and push to main.
 #
 # Paid model evals live in evals.yml and only run when the change-impact detector says a
-# change can affect agent behaviour. Everything here must pass without any secret.
+# change can affect agent behavior. Everything here must pass without any secret.
 name: CI
 
 on:
@@ -135,7 +135,7 @@ jobs:
 
   analyzer:
     # A separate uv project with its own lockfile: it deploys independently of the agent.
-    name: Call analyzer (lint, tests, seed smoke test)
+    name: Call analyzer (lint, typecheck, tests, seed smoke test)
     needs: changes
     if: needs.changes.outputs.analyzer == 'true'
     runs-on: ubuntu-latest
@@ -155,6 +155,7 @@ jobs:
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
+      - run: uv run mypy call_analyzer tests
       - run: uv run pytest -q
       - name: Seed demo calls with the offline heuristic (no keys)
         env:

@@ -90,7 +90,7 @@ class Expect(_Strict):
 
 class Case(_Strict):
     """One scenario. Either a single ``user`` utterance or a multi-turn ``turns`` script; the
-    expectations apply to the agent's behaviour over the *whole* case, judged after the last turn.
+    expectations apply to the agent's behavior over the *whole* case, judged after the last turn.
     """
 
     id: Annotated[str, Field(pattern=_ID_RE.pattern)]

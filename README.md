@@ -297,7 +297,7 @@ frontend/                 Next.js app (App Router)
   components/               live/ (room, orb, transcript), calls/ (list), call-detail/ (scorecard, transcript)
   lib/                      server-only analyzer client, passcode gate, types mirroring the analyzer
 docs/                     architecture, trade-offs, primer, prompts, tools, evals, analyzer, frontend
-.github/workflows/        ci.yml (lint, tests, prompt render, analyzer, frontend) and evals.yml
+.github/workflows/        ci.yml (lint + typecheck, tests, prompt render, analyzer, frontend) and evals.yml
 ```
 
 ## Documentation

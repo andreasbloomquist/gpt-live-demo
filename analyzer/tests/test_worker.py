@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from call_analyzer.analysis import CallAnalyzer
-from call_analyzer.models import AssessmentDraft, CallRecord, Metrics
+from call_analyzer.models import AssessmentDraft, CallRecord, Metrics, ProviderName
 from call_analyzer.providers.base import ProviderError
 from call_analyzer.providers.heuristic import HeuristicProvider
 from call_analyzer.rubric import Rubric
@@ -19,8 +19,8 @@ from tests.factories import make_record
 class ScriptedProvider:
     """Fails according to a script, then behaves like the heuristic provider."""
 
-    name = "openai"
-    model = "scripted"
+    name: ProviderName = "openai"
+    model: str | None = "scripted"
 
     def __init__(self, *failures: BaseException, hang: bool = False) -> None:
         self.failures = list(failures)
@@ -167,8 +167,25 @@ async def test_restart_recovers_interrupted_jobs(tmp_path: Path, rubric: Rubric)
         await second.close()
 
 
-def test_backoff_grows_and_honours_retry_after() -> None:
+def test_backoff_grows_and_honors_retry_after() -> None:
     assert 24 <= backoff_delay(1, 30) <= 36
     assert 96 <= backoff_delay(3, 30) <= 144
     assert backoff_delay(20, 30) <= 30 * 60 * 1.2
     assert backoff_delay(1, 1, retry_after_s=90) == 90
+
+
+async def test_stop_is_not_lost_when_new_work_arrives_at_the_same_moment(
+    repo, rubric: Rubric
+) -> None:
+    # notify() then stop() in one tick: on Python < 3.12, asyncio.wait_for() swallows a
+    # cancellation that races with its inner wait completing, so a loop that relied on
+    # cancellation alone kept running and stop() (i.e. server shutdown) hung forever.
+    worker = worker_for(repo, ScriptedProvider(), rubric, poll_interval_s=3600)
+    await worker.start()
+    await asyncio.sleep(0.05)  # let the loops go idle on the wake event
+
+    worker.notify()
+    # asyncio.wait() (unlike wait_for) never cancels, so a regression fails here, not hangs.
+    stopping = asyncio.ensure_future(worker.stop())
+    done, _ = await asyncio.wait({stopping}, timeout=5)
+    assert stopping in done, "stop() hung: a loop outlived its cancellation"

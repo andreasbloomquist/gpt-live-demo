@@ -221,7 +221,7 @@ about 15k tokens): long calls keep their opening (intent) and ending (outcome) w
 "omitted" marker; single turns are clipped at 2,000 chars and tool outputs at 1,500. Output is
 capped by `ANALYZER_MAX_OUTPUT_TOKENS`.
 
-**Errors and retries.** The SDK retries individual requests on 429/5xx/timeouts (honouring
+**Errors and retries.** The SDK retries individual requests on 429/5xx/timeouts (honoring
 `Retry-After`, `ANALYZER_SDK_RETRIES`, default 2). If that still fails, the worker re-queues the
 job with exponential backoff (30 s, 60 s, ... with jitter, never sooner than `Retry-After`) up to
 `ANALYZER_MAX_ATTEMPTS` (default 3). Bad keys, unknown models, refusals, answers cut off at the
@@ -557,11 +557,11 @@ service, both of which wire the pieces below together):
 ## Trade-offs and limitations
 
 - **LLM-as-judge is a measurement instrument with known biases.** Judges tend to be lenient,
-  favour longer and more confident answers, can prefer text in their own style, and vary between
+  favor longer and more confident answers, can prefer text in their own style, and vary between
   runs. Mitigations here: anchored 1-5 scales instead of open-ended ratings, evidence that must
   exist in the transcript, the overall score computed in code, caps for showstoppers, and a
   recorded `rubric_version` + model. What's *not* here and worth adding before trusting trends:
-  a small human-labelled calibration set, agreement tracking between judge versions, and a
+  a small human-labeled calibration set, agreement tracking between judge versions, and a
   periodic spot-check of low- and high-scoring calls.
 - **The judge only sees text.** It can't hear tone, latency, or audio quality; interruptions and
   silences come from timestamps and flags the agent recorded, and ASR errors can look like agent

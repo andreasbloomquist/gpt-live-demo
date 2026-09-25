@@ -57,7 +57,7 @@ def test_whitespace_and_comment_only_prompt_edit_runs_nothing(repo: Path, edit: 
     edit(VOICE_STYLE, reformat)
     plan = plan_for(repo)
     assert planned(plan) == set(), plan.runs
-    assert all("no behaviour-affecting change" in s.reason for s in plan.skipped)
+    assert all("no behavior-affecting change" in s.reason for s in plan.skipped)
 
 
 def test_voice_prompt_wording_runs_voice_tier_only(repo: Path, edit: EditFile) -> None:
@@ -253,7 +253,7 @@ def test_unusual_file_names_are_not_misread_as_irrelevant(repo: Path) -> None:
 
 
 def test_agent_data_file_change_runs_everything(repo: Path) -> None:
-    # Non-Python files a module may read at runtime are behaviour too.
+    # Non-Python files a module may read at runtime are behavior too.
     data = repo / "agent/voice_agent/tools/restaurants/fixtures.json"
     data.write_text('{"nopa": ["19:00"]}\n')
     commit_all(repo, "add data file")

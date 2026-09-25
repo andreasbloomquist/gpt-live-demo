@@ -544,12 +544,12 @@ heading in `prompts/modules/core/voice_style.md`:
 ```text
 change-impact plan  base=041892519c22  head=dbe2608144af
   nothing to run
-  skip brain conversation_style: no behaviour-affecting change for this tier
-  skip voice conversation_style: no behaviour-affecting change for this tier
-  skip brain restaurant_availability: no behaviour-affecting change for this tier
-  skip voice restaurant_availability: no behaviour-affecting change for this tier
-  skip brain web_search: no behaviour-affecting change for this tier
-  skip voice web_search: no behaviour-affecting change for this tier
+  skip brain conversation_style: no behavior-affecting change for this tier
+  skip voice conversation_style: no behavior-affecting change for this tier
+  skip brain restaurant_availability: no behavior-affecting change for this tier
+  skip voice restaurant_availability: no behavior-affecting change for this tier
+  skip brain web_search: no behavior-affecting change for this tier
+  skip voice web_search: no behavior-affecting change for this tier
 ```
 
 An earlier attempt at this commit also added a blank line *between two bullets*. The detector
@@ -567,9 +567,9 @@ change-impact plan  base=dbe2608144af  head=2a5c14d85c8f
          - voice prompt of profile `concierge` changed (+1/-1 normalized lines)
   RUN  voice web_search  [fp 9a0b2d2aff4bcd38]
          - voice prompt of profile `concierge` changed (+1/-1 normalized lines)
-  skip brain conversation_style: no behaviour-affecting change for this tier
-  skip brain restaurant_availability: no behaviour-affecting change for this tier
-  skip brain web_search: no behaviour-affecting change for this tier
+  skip brain conversation_style: no behavior-affecting change for this tier
+  skip brain restaurant_availability: no behavior-affecting change for this tier
+  skip brain web_search: no behavior-affecting change for this tier
 ```
 
 **3. Change the restaurant tool's `party_size` argument description** in its docstring. The
@@ -592,7 +592,7 @@ file. The model never sees that text, so nothing runs:
 ```text
 change-impact plan  base=0421316ae413  head=8dd3a6ca7c68
   nothing to run
-  skip brain conversation_style: no behaviour-affecting change for this tier
+  skip brain conversation_style: no behavior-affecting change for this tier
   ...
 ```
 
@@ -606,10 +606,10 @@ change-impact plan  base=8dd3a6ca7c68  head=1dc099b764e4
          - implementation of tool `check_restaurant_availability` changed (normalized AST)
   RUN  brain restaurant_availability  [fp f2d248e377ee4dfc]
          - implementation of tool `check_restaurant_availability` changed (normalized AST)
-  skip voice conversation_style: no behaviour-affecting change for this tier
-  skip voice restaurant_availability: no behaviour-affecting change for this tier
-  skip brain web_search: no behaviour-affecting change for this tier
-  skip voice web_search: no behaviour-affecting change for this tier
+  skip voice conversation_style: no behavior-affecting change for this tier
+  skip voice restaurant_availability: no behavior-affecting change for this tier
+  skip brain web_search: no behavior-affecting change for this tier
+  skip voice web_search: no behavior-affecting change for this tier
 ```
 
 **5. A docs-only change** (`README.md`, `docs/tools.md`) takes the fast path. Nothing is exported
@@ -617,9 +617,9 @@ or rendered:
 
 ```text
 change-impact plan  base=1dc099b764e4  head=2d376f5ebbe0
-  note: fast path: no behaviour-relevant files changed (2 file(s): README.md, docs/tools.md)
+  note: fast path: no behavior-relevant files changed (2 file(s): README.md, docs/tools.md)
   nothing to run
-  skip brain conversation_style: no behaviour-relevant files changed (2 file(s): README.md, docs/tools.md)
+  skip brain conversation_style: no behavior-relevant files changed (2 file(s): README.md, docs/tools.md)
   ...
 ```
 
@@ -630,7 +630,7 @@ voice tier only:
   RUN  voice conversation_style  [fp 5ab25ddcb7bf93c5]
          - setting `gpt_live_voice` default: 'marin' → 'cedar'
   ...  (voice restaurant_availability, voice web_search)
-  skip brain conversation_style: no behaviour-affecting change for this tier
+  skip brain conversation_style: no behavior-affecting change for this tier
 ```
 
 Changing backend reasoning effort (`"low"` → `"medium"`) runs both tiers for every suite:
@@ -706,7 +706,7 @@ is also a natural cache key, but the current code does not use it to skip runs (
 | The diff touches `evals/impact/**` or `.github/workflows/evals.yml`, or (CI only) the base has no planner yet | Everything runs, with `forced: planner code changed: running everything`. The fast path is bypassed. |
 | Label **`evals:full`**, `--force-all`, `EVALS_FORCE_ALL=1`, the nightly schedule, `workflow_dispatch` (defaults to force) | Everything runs, with `forced: label \`evals:full\``-style reasons. `EVALS_FORCE_REASON` sets the reason for an `EVALS_FORCE_ALL` run (the workflow uses it for the planner case). The fast path is bypassed. |
 | Label **`evals:skip`** | Nothing runs, and every pair lists `label \`evals:skip\``. It wins over `evals:full` and over a forced run. |
-| Draft PR (CI only) | The plan runs as usual, but the workflow's gate sets `can_spend=false`, so paid jobs skip with "Draft PR: paid evals are planned but not run until the PR is ready for review (or labelled evals:full)." Marking the PR ready re-triggers the workflow; `evals:full` overrides. |
+| Draft PR (CI only) | The plan runs as usual, but the workflow's gate sets `can_spend=false`, so paid jobs skip with "Draft PR: paid evals are planned but not run until the PR is ready for review (or labeled evals:full)." Marking the PR ready re-triggers the workflow; `evals:full` overrides. |
 | `--suites a,b` / `--tiers brain` | Filters the plan. Skipped pairs say `not selected`. An unknown suite or tier name is an error (exit `2`), never an empty plan that reports green. |
 | `--no-merge-base`, `--no-fast-path` | Diff against the base tip, or always fingerprint both trees. |
 
@@ -812,7 +812,8 @@ which areas changed, and only the jobs for those areas run; a push to `main` run
 `pyproject.toml` (its ruff config extends the root one) or `ci.yml`; `frontend` runs for
 `frontend/` or `ci.yml`:
 
-- **`lint`**: `ruff check` and `ruff format --check`.
+- **`lint`**: `ruff check`, `ruff format --check`, and strict `mypy` over `agent/voice_agent`
+  and `evals`.
 - **`test`**: `pytest` over `agent/tests` and `evals/tests`.
 - **`prompts`**: renders every profile for both targets with the real composer, builds every tool
   schema (`evals.impact probe --strict`), runs `evals validate`, checks that `suite.schema.json`
@@ -820,7 +821,7 @@ which areas changed, and only the jobs for those areas run; a push to `main` run
 - **`analyzer`**: the Call Analyzer is a separate uv project with its own lockfile, so it gets
   its own job: `uv sync --locked`, ruff, `pytest`, and a smoke test that seeds the six demo calls
   with the offline heuristic into a temporary database (no keys).
-- **`frontend`**: lint, typecheck and build.
+- **`frontend`**: ESLint, a Prettier format check, typecheck and build.
 
 ---
 

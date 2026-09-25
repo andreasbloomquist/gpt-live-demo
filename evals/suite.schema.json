@@ -2,7 +2,7 @@
   "$defs": {
     "Case": {
       "additionalProperties": false,
-      "description": "One scenario. Either a single ``user`` utterance or a multi-turn ``turns`` script; the\nexpectations apply to the agent's behaviour over the *whole* case, judged after the last turn.",
+      "description": "One scenario. Either a single ``user`` utterance or a multi-turn ``turns`` script; the\nexpectations apply to the agent's behavior over the *whole* case, judged after the last turn.",
       "properties": {
         "id": {
           "pattern": "^[a-z0-9][a-z0-9_\\-]*$",

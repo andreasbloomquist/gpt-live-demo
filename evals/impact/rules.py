@@ -23,7 +23,7 @@ code.voice_runtime     agent.py / main.py AST         voice tier of every suite
 code.post_call         recording.py AST               nothing (runs after the call ends; no eval
                                                       exercises it, unit tests cover it)
 config.voice:<field>   voice-only settings default    voice tier of every suite
-config.shared:<field>  other behavioural defaults     brain + voice of every suite
+config.shared:<field>  other behavioral defaults     brain + voice of every suite
 config.logic           rest of config.py AST          brain + voice of every suite
 suite:<name>           normalized suite YAML          that suite's tiers
 runner:<tier|shared>   eval runner code AST           that tier (shared: both) of every suite
@@ -79,10 +79,10 @@ RUNNER_CODE: dict[str, tuple[str, ...]] = {
     ),
 }
 
-# Settings that never change agent behaviour in evals (credentials, endpoints, logging, the
+# Settings that never change agent behavior in evals (credentials, endpoints, logging, the
 # OpenTable provider, which evals replace with the deterministic mock, and post-call recording).
 # Credential patterns are anchored to whole name segments: an unanchored ``token`` would also
-# swallow behavioural settings such as ``gpt_live_backend_max_output_tokens``.
+# swallow behavioral settings such as ``gpt_live_backend_max_output_tokens``.
 CONFIG_IGNORED = re.compile(
     r"(^|_)(api_key|secret|token)$|_url$|^log_level$|^livekit_|^opentable_|^call_"
 )
@@ -94,7 +94,7 @@ CONFIG_VOICE_ONLY = re.compile(r"^gpt_live_(model|voice)$")
 WATCHED_PACKAGE = re.compile(r"^(livekit(-.*)?|openai)$")
 
 # The cheap "nothing relevant changed" fast path, checked before any tree is exported or
-# rendered: only files under RELEVANT_PREFIXES can change behaviour, minus the exceptions in
+# rendered: only files under RELEVANT_PREFIXES can change behavior, minus the exceptions in
 # IRRELEVANT_PREFIXES (``evals/impact`` changes are forced to a full run by the CLI instead).
 RELEVANT_PREFIXES = (f"{AGENT_PKG}/", "prompts/", "evals/", "uv.lock")
 IRRELEVANT_PREFIXES = ("evals/tests/", "evals/impact/", "evals/README.md", "evals/.results/")
@@ -118,7 +118,7 @@ def runner_group(path: str) -> str | None:
 
 def config_kind(field: str) -> str | None:
     """``"voice"`` | ``"shared"`` | ``None`` (ignored). Unknown fields default to shared:
-    a new setting is presumed behavioural until someone adds it to an allow-list."""
+    a new setting is presumed behavioral until someone adds it to an allow-list."""
     if CONFIG_IGNORED.search(field):
         return None
     if CONFIG_VOICE_ONLY.match(field):

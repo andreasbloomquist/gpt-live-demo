@@ -103,7 +103,7 @@ def build_plan(
     fast_path: bool = True,
     python: str = sys.executable,
 ) -> Plan:
-    """Export base (and head, if a ref) and diff their behavioural fingerprints."""
+    """Export base (and head, if a ref) and diff their behavioral fingerprints."""
     head_sha = gitutil.rev_parse(repo, head) if head else "WORKTREE"
     base_sha = gitutil.rev_parse(repo, base)
     if use_merge_base:

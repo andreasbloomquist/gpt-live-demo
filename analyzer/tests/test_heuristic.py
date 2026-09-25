@@ -9,7 +9,7 @@ from tests.factories import demo_files, load_demo, make_record, record_dict
 
 
 @pytest.mark.parametrize("path", demo_files(), ids=lambda p: p.stem)
-async def test_every_demo_call_gets_a_complete_labelled_analysis(
+async def test_every_demo_call_gets_a_complete_labeled_analysis(
     path, heuristic_analyzer: CallAnalyzer
 ) -> None:
     record = load_demo(path.name)

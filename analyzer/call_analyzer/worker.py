@@ -72,6 +72,7 @@ class AnalysisWorker:
         self._job_timeout_s = job_timeout_s
         self._poll_interval_s = poll_interval_s
         self._wake = asyncio.Event()
+        self._stopping = False
         self._tasks: list[asyncio.Task[None]] = []
 
     async def start(self) -> None:
@@ -80,6 +81,7 @@ class AnalysisWorker:
             logger.info(
                 "recovered interrupted analyses", extra={"requeued": requeued, "failed": failed}
             )
+        self._stopping = False
         self._tasks = [
             asyncio.create_task(self._loop(i), name=f"analysis-worker-{i}")
             for i in range(self._concurrency)
@@ -90,11 +92,13 @@ class AnalysisWorker:
         self._wake.set()
 
     async def stop(self) -> None:
+        # The flag, not just the cancel, is what ends the loops: before Python 3.12,
+        # asyncio.wait_for() swallows a cancellation that races with its inner wait finishing
+        # (e.g. a notify() at shutdown), and a loop relying on the cancel alone ran on forever.
+        self._stopping = True
         for task in self._tasks:
             task.cancel()
-        for task in self._tasks:
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks = []
 
     async def run_until_idle(self) -> None:
@@ -103,7 +107,7 @@ class AnalysisWorker:
             await self._process(job)
 
     async def _loop(self, index: int) -> None:
-        while True:
+        while not self._stopping:
             try:
                 job = await self._repo.claim_next()
                 if job is not None:

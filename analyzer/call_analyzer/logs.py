@@ -22,7 +22,7 @@ _STANDARD_ATTRS = frozenset(vars(logging.LogRecord("", 0, "", 0, "", (), None)))
     "message",
     "asctime",
     "taskName",
-    "color_message",  # uvicorn's ANSI-coloured duplicate of the message
+    "color_message",  # uvicorn's ANSI-colored duplicate of the message
 }
 _MAX_ERROR_DETAILS = 10
 

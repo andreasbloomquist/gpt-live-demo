@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     request_timeout_s: float = Field(
         default=60.0, gt=0, le=600, validation_alias="ANALYZER_TIMEOUT_S"
     )
-    # Request-level retries inside the OpenAI SDK (429/5xx/timeouts, honours Retry-After).
+    # Request-level retries inside the OpenAI SDK (429/5xx/timeouts, honors Retry-After).
     sdk_max_retries: int = Field(default=2, ge=0, le=10, validation_alias="ANALYZER_SDK_RETRIES")
     # Transcript budget for the prompt (~4 chars/token). Longer calls keep their start and end.
     max_prompt_chars: int = Field(
@@ -101,7 +101,7 @@ class Settings(BaseSettings):
         default=2.0, gt=0, le=60, validation_alias="ANALYZER_POLL_INTERVAL_S"
     )
 
-    @field_validator("reasoning_effort", "base_url", mode="before")
+    @field_validator("reasoning_effort", "base_url", "api_key", "api_token", mode="before")
     @classmethod
     def _empty_is_none(cls, value: object) -> object:
         # `FOO=` in a .env file means "unset", not "the empty string".
@@ -112,11 +112,6 @@ class Settings(BaseSettings):
     def _upper_log_level(cls, value: object) -> object:
         # Validated here so a typo is a clear startup error, not a traceback from `logging`.
         return value.strip().upper() if isinstance(value, str) else value
-
-    @field_validator("api_key", "api_token", mode="before")
-    @classmethod
-    def _empty_secret_is_none(cls, value: object) -> object:
-        return None if isinstance(value, str) and not value.strip() else value
 
     def resolved_provider(self) -> Literal["openai", "heuristic"]:
         """``auto`` means: use the LLM when a key is configured, otherwise stay offline."""

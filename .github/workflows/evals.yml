@@ -3,7 +3,7 @@
 #   plan ──► brain (matrix, cheap) ──► voice (matrix, expensive; only if brain passed) ──► report ──► comment
 #
 # Gates, cheapest first:
-#   1. Fast path: `plan` finishes in seconds when no behaviour-relevant file changed (docs,
+#   1. Fast path: `plan` finishes in seconds when no behavior-relevant file changed (docs,
 #      frontend, CI), without rendering anything.
 #   2. Change impact: `python -m evals.impact` fingerprints base vs head (rendered prompts, tool
 #      schemas, normalized ASTs, settings defaults, lockfile) and emits the exact suite x tier
@@ -174,7 +174,7 @@ jobs:
             echo "reason=PR from a fork: repository secrets are not available, paid evals skipped. A maintainer can push the branch to this repository and run them via workflow_dispatch." >> "$GITHUB_OUTPUT"
           elif [ "$IS_DRAFT" = "true" ]; then
             echo "can_spend=false" >> "$GITHUB_OUTPUT"
-            echo "reason=Draft PR: paid evals are planned but not run until the PR is ready for review (or labelled evals:full)." >> "$GITHUB_OUTPUT"
+            echo "reason=Draft PR: paid evals are planned but not run until the PR is ready for review (or labeled evals:full)." >> "$GITHUB_OUTPUT"
           else
             echo "can_spend=true" >> "$GITHUB_OUTPUT"
             echo "reason=" >> "$GITHUB_OUTPUT"

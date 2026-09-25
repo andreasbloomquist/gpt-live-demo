@@ -1,7 +1,7 @@
 # Evals
 
 This directory holds the eval harness for the GPT-Live voice agent. It has three tiers, and
-paid tiers run only when a change can actually affect behaviour. This file covers usage; the
+paid tiers run only when a change can actually affect behavior. This file covers usage; the
 design rationale is in [`docs/evals.md`](../docs/evals.md).
 
 | tier    | what runs                                                             | cost        | when |
@@ -118,7 +118,7 @@ the production `VoiceAgent`. It drives the session with **audio**, not text:
   cached in `.cache/tts/` under `sha256(model|voice|instructions|text)` (per-clip lock, atomic
   write), so input audio is identical across runs and paid for once. It is streamed in real
   time through a custom `voice.io.AudioInput`, with silence between turns. A paced
-  `AudioOutput` acts as the speaker and measures **voice-to-voice latency**; it honours
+  `AudioOutput` acts as the speaker and measures **voice-to-voice latency**; it honors
   `clear_buffer()`, so barge-ins are recorded as interrupted replies. The agent's turn counts
   as done once the session has been quiet for a short time. If the session closes on its own
   (a GPT-Live error), the trial ends at once as a crashed trial. Grading reads
@@ -137,7 +137,7 @@ the production `VoiceAgent`. It drives the session with **audio**, not text:
 ## Change-impact detection (`impact/`)
 
 `python -m evals.impact plan` exports the merge-base tree with `git archive`. It then builds a
-**behavioural fingerprint** from components of both trees and diffs the two. Each tree is
+**behavioral fingerprint** from components of both trees and diffs the two. Each tree is
 probed in its own subprocess (`probe.py`) with that tree's `voice_agent` on `PYTHONPATH`.
 
 | component | derived from | re-runs |
@@ -191,7 +191,7 @@ per-tier fingerprints to `$GITHUB_OUTPUT`, and a Markdown table to `$GITHUB_STEP
 ## CI
 
 - `.github/workflows/ci.yml`: ruff, pytest, rendering of every profile, suite validation,
-  dry-runs, the call analyzer's own lint/tests/seed smoke test, and the frontend
+  dry-runs, the call analyzer's own lint/typecheck/tests/seed smoke test, and the frontend
   lint/typecheck/build. None of it needs secrets.
 - `.github/workflows/evals.yml`: `plan` (base commit's planner) → `brain` matrix → `voice`
   matrix (only if brain passed) → `report` (builds it read-only) → `comment` (posts the sticky

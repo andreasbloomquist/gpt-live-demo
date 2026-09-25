@@ -226,3 +226,12 @@ def test_cli_render_json(prompt_tree: PromptTree, capsys: pytest.CaptureFixture[
     assert payload["voice_instructions"].startswith("Hi, I'm Ava")
 
     assert prompts_cli(["--prompts-dir", str(root), "render", "missing"]) == 1
+
+
+def test_prompts_dir_env_is_read_when_the_composer_is_created(
+    prompt_tree: PromptTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `.env` is loaded after the package is imported, so the directory must not be frozen then.
+    tree = prompt_tree(MANIFEST, _modules())
+    monkeypatch.setenv("PROMPTS_DIR", str(tree))
+    assert PromptComposer().prompts_dir == tree.resolve()
