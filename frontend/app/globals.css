@@ -1,0 +1,133 @@
+/* Minimal dark theme. No CSS framework: a handful of classes is all this demo needs. */
+:root {
+  --bg: #0b0d10;
+  --panel: #14171c;
+  --border: #242933;
+  --text: #e6e8eb;
+  --muted: #8b93a1;
+  --accent: #6ee7b7;
+  --accent-ink: #062b1f;
+  --danger: #f87171;
+  --radius: 14px;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(1200px 600px at 50% -10%, #17202a 0%, var(--bg) 60%);
+  color: var(--text);
+  font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+a { color: var(--accent); }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+.muted { color: var(--muted); }
+
+.shell {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 48px 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 100vh;
+}
+
+.header h1 { margin: 0 0 4px; font-size: 1.6rem; letter-spacing: -0.01em; }
+.header p { margin: 0; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+.idle { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
+.idle p { margin: 0; }
+.session { display: flex; flex-direction: column; gap: 18px; }
+
+/* Buttons (also applied to LiveKit's TrackToggle / DisconnectButton via className). */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #1b2029;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn:hover:not(:disabled) { border-color: #3a4250; }
+.btn:disabled { opacity: 0.6; cursor: default; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+.btn.danger { color: var(--danger); }
+.btn[data-lk-enabled="false"] { color: var(--danger); border-color: #5b2a2a; } /* mic muted */
+.btn svg { width: 16px; height: 16px; }
+
+.controls { display: flex; gap: 10px; justify-content: center; }
+
+/* Agent state pill */
+.status { display: flex; align-items: center; gap: 8px; justify-content: center; color: var(--muted); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.dot-listening { background: var(--accent); }
+.dot-thinking { background: #fbbf24; animation: pulse 1s infinite; }
+.dot-speaking { background: #60a5fa; }
+.dot-failed { background: var(--danger); }
+@keyframes pulse { 50% { opacity: 0.3; } }
+
+/* BarVisualizer renders .lk-audio-bar-visualizer > span.lk-audio-bar (height set inline). */
+.visualizer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 120px;
+}
+.visualizer .lk-audio-bar {
+  width: 14px;
+  min-height: 14px;
+  border-radius: 999px;
+  background: #2a313c;
+  transition: height 0.08s ease-out, background 0.25s;
+}
+.visualizer .lk-audio-bar[data-lk-highlighted="true"] { background: var(--accent); }
+.visualizer[data-lk-va-state="speaking"] .lk-audio-bar { background: #60a5fa; }
+
+/* Transcript */
+.transcript {
+  max-height: 280px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.transcript p { margin: 0; }
+.line .who {
+  display: inline-block;
+  min-width: 52px;
+  margin-right: 8px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.line.agent .who { color: #60a5fa; }
+
+.error {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #2a1414;
+  border: 1px solid #5b2a2a;
+  color: #fecaca;
+}
+
+.footer { margin-top: auto; text-align: center; font-size: 0.85rem; }
