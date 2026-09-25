@@ -107,10 +107,18 @@ class ValidatingAgentServer(AgentServer):
     the worker registers with LiveKit. The alternative hook, ``setup_fnc`` (a.k.a. prewarm),
     runs in each job *subprocess* after registration, so the worker would already be accepting
     dispatches when it failed.
+
+    A failed check exits the process with the actionable message (``SystemExit``) rather than
+    raising: LiveKit's CLI catches exceptions from ``run``, logs them as a traceback, and then
+    drains the never-started worker, which crashes with an unrelated ``AttributeError`` that
+    buries the real cause. ``SystemExit`` propagates past that handler and exits with status 1.
     """
 
     async def run(self, *, devmode: bool = False, unregistered: bool = False) -> None:
-        preflight(get_settings())
+        try:
+            preflight(get_settings())
+        except Exception as exc:  # settings validation, missing keys, bad prompts or tools
+            raise SystemExit(f"voice-agent: invalid configuration, not starting: {exc}") from None
         await super().run(devmode=devmode, unregistered=unregistered)
 
 

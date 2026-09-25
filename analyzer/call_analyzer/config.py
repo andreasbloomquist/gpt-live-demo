@@ -16,6 +16,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ProviderChoice = Literal["auto", "openai", "heuristic"]
 ReasoningEffort = Literal["none", "minimal", "low", "medium", "high"]
+LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 # The frontend's .env.example ships this value; it is fine on a laptop, never on a server.
 PLACEHOLDER_TOKEN = "change-me-shared-secret"
@@ -45,7 +46,7 @@ class Settings(BaseSettings):
     max_body_bytes: int = Field(
         default=2 * 1024 * 1024, ge=1024, validation_alias="ANALYZER_MAX_BODY_BYTES"
     )
-    log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
+    log_level: LogLevel = Field(default="INFO", validation_alias="LOG_LEVEL")
 
     # --- Storage -----------------------------------------------------------------------------
     db_path: Path = Field(default=Path("./data/calls.db"), validation_alias="ANALYZER_DB_PATH")
@@ -96,6 +97,12 @@ class Settings(BaseSettings):
     def _empty_is_none(cls, value: object) -> object:
         # `FOO=` in a .env file means "unset", not "the empty string".
         return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def _upper_log_level(cls, value: object) -> object:
+        # Validated here so a typo is a clear startup error, not a traceback from `logging`.
+        return value.strip().upper() if isinstance(value, str) else value
 
     @field_validator("api_key", "api_token", mode="before")
     @classmethod

@@ -190,6 +190,24 @@ async def test_malformed_output_is_a_retryable_error(rubric: Rubric, content: st
     assert info.value.retryable
 
 
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx2.Response(200, text="<html>login page</html>", headers={"content-type": "text/html"}),
+        httpx2.Response(200, json={"not": "a completion"}),
+        httpx2.Response(200, text="{broken", headers={"content-type": "application/json"}),
+    ],
+)
+async def test_non_completion_responses_point_at_the_base_url(
+    rubric: Rubric, response: httpx2.Response
+) -> None:
+    # The SDK raises raw AttributeError/TypeError/JSONDecodeError for these; without mapping,
+    # the worker could only store a generic "internal error".
+    with pytest.raises(ProviderError, match="ANALYZER_BASE_URL") as info:
+        await assess(provider_with(lambda request: response), rubric)
+    assert not info.value.retryable
+
+
 async def test_truncated_output_is_not_retried(rubric: Rubric) -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         return httpx2.Response(200, json=completion('{"summary": "cut', finish_reason="length"))

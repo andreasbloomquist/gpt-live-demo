@@ -29,6 +29,21 @@ def test_naive_timestamps_are_rejected() -> None:
         make_record(started_at="2026-09-24T01:00:00")
 
 
+@pytest.mark.parametrize(
+    ("started_at", "ended_at"),
+    [
+        # A 3-digit year would break the fixed-width text ordering storage relies on.
+        ("0999-01-01T00:00:00Z", "0999-01-01T00:01:00Z"),
+        # Converting these to UTC overflows datetime (was a 500, not a 422).
+        ("0001-01-01T00:00:00+05:00", "0001-01-01T00:01:00+05:00"),
+        ("9999-12-31T23:00:00-05:00", "9999-12-31T23:01:00-05:00"),
+    ],
+)
+def test_out_of_range_timestamps_are_rejected(started_at: str, ended_at: str) -> None:
+    with pytest.raises(ValidationError, match="timestamp"):
+        make_record(started_at=started_at, ended_at=ended_at)
+
+
 def test_turn_limits() -> None:
     too_long = record_dict()
     too_long["turns"][0]["text"] = "x" * (MAX_TURN_CHARS + 1)

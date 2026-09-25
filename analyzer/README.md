@@ -110,7 +110,7 @@ Every error has the same shape, never includes a stack trace, and never echoes s
 
 | Status | `code` | When |
 |---|---|---|
-| 400 | `bad_request` | Invalid `cursor`, malformed `Content-Length` |
+| 400 | `bad_request` | Invalid `cursor` (a malformed `Content-Length` is rejected by uvicorn itself, as plain text) |
 | 401 | `unauthorized` | Missing/wrong bearer token (with `WWW-Authenticate: Bearer`) |
 | 404 | `not_found` | Unknown `call_id` |
 | 409 | `conflict` | A *different* record was already stored under this `call_id` |
@@ -147,7 +147,7 @@ curl -s -X POST $URL/v1/calls -H "$AUTH" -H 'Content-Type: application/json' \
 
 **Limits** (413 for size, 422 for the rest): body ≤ 2 MiB; ≤ 2000 turns; turn text ≤ 20,000
 chars; ≤ 500 tool calls (arguments ≤ 20,000, output ≤ 50,000 chars); ≤ 200 usage entries;
-duration ≤ 24 h. Timestamps must include a timezone and are normalized to UTC. `call_id` must
+duration ≤ 24 h. Timestamps must include a timezone, be from 1970 on, and are normalized to UTC. `call_id` must
 match `^[A-Za-z0-9_][A-Za-z0-9._:@=+-]{0,199}$` (it appears in URLs and logs). Unknown fields are
 rejected rather than dropped, so contract drift is loud (the agent then falls back to disk). Turn
 ids and tool call ids must be unique within a call.
@@ -414,8 +414,8 @@ capped by `ANALYZER_MAX_OUTPUT_TOKENS`.
 **Errors and retries.** The SDK retries individual requests on 429/5xx/timeouts (honouring
 `Retry-After`, `ANALYZER_SDK_RETRIES`, default 2). If that still fails, the worker re-queues the
 job with exponential backoff (30 s, 60 s, ... with jitter, never sooner than `Retry-After`) up to
-`ANALYZER_MAX_ATTEMPTS` (default 3). Bad keys, unknown models, refusals, and answers cut off at
-the token limit fail immediately with an actionable message in `analysis.error`. Stored error
+`ANALYZER_MAX_ATTEMPTS` (default 3). Bad keys, unknown models, refusals, answers cut off at the
+token limit, and responses that aren't chat completions at all (usually a wrong base URL) fail immediately with an actionable message in `analysis.error`. Stored error
 messages never contain secrets or transcript text.
 
 ### `heuristic`: deterministic and offline

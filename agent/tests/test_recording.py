@@ -215,6 +215,17 @@ def test_tool_call_without_output_is_recorded_as_pending(bundle: PromptBundle) -
     assert call["is_error"] is False
 
 
+def test_repeated_message_id_yields_one_turn(bundle: PromptBundle) -> None:
+    # The analyzer rejects a record with duplicate turn ids, so a repeat must collapse.
+    items: list[llm.ChatItem] = [
+        llm.ChatMessage(id="u1", role="user", content=["A table"], created_at=EPOCH0),
+        llm.ChatMessage(id="a1", role="assistant", content=["Sure."], created_at=EPOCH0 + 1),
+        llm.ChatMessage(id="u1", role="user", content=["A table for two"], created_at=EPOCH0 + 2),
+    ]
+    turns = make_record(bundle, items)["turns"]
+    assert [(t["id"], t["text"]) for t in turns] == [("u1", "A table for two"), ("a1", "Sure.")]
+
+
 def test_long_turn_is_truncated_to_the_analyzer_limit(bundle: PromptBundle) -> None:
     items: list[llm.ChatItem] = [
         llm.ChatMessage(id="long", role="user", content=["word " * 10_000], created_at=EPOCH0)
@@ -367,6 +378,17 @@ async def test_connection_error_is_retried(tmp_path: Path, bundle: PromptBundle)
 
     result = await exporter(tmp_path, handler).export(make_record(bundle))
     assert (attempts, result.destination) == (2, "analyzer")
+
+
+async def test_undecodable_response_falls_back_to_disk(
+    tmp_path: Path, bundle: PromptBundle
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.DecodingError("bad gzip", request=request)
+
+    result = await exporter(tmp_path, handler).export(make_record(bundle))
+    assert result.destination == "file"  # not "failed": the transcript is still kept
+    assert result.detail == "DecodingError"
 
 
 async def test_4xx_is_not_retried_but_record_is_kept(tmp_path: Path, bundle: PromptBundle) -> None:

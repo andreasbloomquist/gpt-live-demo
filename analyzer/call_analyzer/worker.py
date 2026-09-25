@@ -121,11 +121,13 @@ class AnalysisWorker:
 
     async def _run_job(self, job: Job) -> None:
         log_extra = {"call_id": job.call_id, "attempt": job.attempts}
-        stored = await self._repo.get_call(job.call_id)
-        if stored is None:  # deleted between claim and load
-            return
-        record = CallRecord.model_validate_json(stored.record_json)
+        # Loading is inside the try too: if it raised, the row would stay `running` (and look
+        # stuck in the UI) until the next restart.
         try:
+            stored = await self._repo.get_call(job.call_id)
+            if stored is None:  # deleted between claim and load
+                return
+            record = CallRecord.model_validate_json(stored.record_json)
             analysis = await asyncio.wait_for(
                 self._analyzer.analyze(record), timeout=self._job_timeout_s
             )

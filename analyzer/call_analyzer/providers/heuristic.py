@@ -109,6 +109,8 @@ def _quote(text: str, match: re.Match[str] | None = None, *, last: bool = False)
     if len(text.strip()) <= _MAX_QUOTE_CHARS:
         return text.strip()
     sentences = [m for m in _SENTENCE.finditer(text) if m.group().strip()]
+    if not sentences:  # nothing but punctuation and spaces: any window is as good as another
+        return text.strip()[:_MAX_QUOTE_CHARS]
     chosen = sentences[-1] if last else sentences[0]
     if match is not None:
         chosen = next((m for m in sentences if m.start() <= match.start() < m.end()), chosen)
@@ -523,7 +525,9 @@ def _chosen_time(times: list[str], user: list[Turn]) -> str | None:
 
 def _join(items: list[str]) -> str:
     """``["a", "b", "c"]`` -> ``"a, b or c"``."""
-    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} or {items[-1]}"
+    if len(items) <= 1:
+        return items[0] if items else "other times"
+    return f"{', '.join(items[:-1])} or {items[-1]}"
 
 
 def _check_story(s: _Signals) -> str:
@@ -538,7 +542,9 @@ def _check_story(s: _Signals) -> str:
     requested = _clock(out.get("requested_time") or args.get("time"))
     party = out.get("party_size") or args.get("party_size", "?")
     day = out.get("weekday") or _spoken_date(out.get("date") or args.get("date"))
-    times = [str(t) for t in out.get("nearest_available_times") or []]
+    # Tool output is data from the record, not a contract: tolerate a missing or odd list.
+    raw_times = out.get("nearest_available_times")
+    times = [str(t) for t in raw_times] if isinstance(raw_times, list) else []
     status, note = out.get("status"), str(out.get("note") or "")
     disclosed = _first_hit(s.agent, NO_BOOKING_DISCLOSURE) is not None
 

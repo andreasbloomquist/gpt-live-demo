@@ -138,6 +138,15 @@ class OpenAIProvider:
                 f"LLM returned output that doesn't match the schema ({exc.error_count()} errors)",
                 retryable=True,
             ) from exc
+        except (openai.APIError, ValueError, TypeError, AttributeError) as exc:
+            # A 200 that isn't a chat completion at all (an HTML page, `{}`, broken JSON): the SDK
+            # surfaces these as raw JSONDecodeError/AttributeError/TypeError. In practice that's
+            # a base URL pointing at the wrong thing, which retrying won't fix.
+            raise ProviderError(
+                f"LLM endpoint returned an unexpected response ({type(exc).__name__}); "
+                "check ANALYZER_BASE_URL",
+                retryable=False,
+            ) from exc
 
         if not completion.choices:
             raise ProviderError("LLM returned no choices", retryable=True)

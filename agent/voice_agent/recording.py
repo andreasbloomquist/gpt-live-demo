@@ -99,14 +99,17 @@ def build_call_record(
     if not CALL_ID_PATTERN.fullmatch(call_id):
         raise ValueError(f"call_id {call_id!r} is not filename-safe ({CALL_ID_PATTERN.pattern})")
 
-    turns: list[dict[str, Any]] = []
+    # Keyed by message id because the analyzer rejects duplicate turn ids. Session history
+    # inserts messages without de-duplicating, so if an id ever repeats, the later (more
+    # complete) version wins but keeps the position where the turn first appeared.
+    turns_by_id: dict[str, dict[str, Any]] = {}
     calls: dict[str, dict[str, Any]] = {}  # insertion-ordered by call_id
     outputs: dict[str, llm.FunctionCallOutput] = {}
     for item in items:
         if isinstance(item, llm.ChatMessage):
             turn = _turn(item)
             if turn is not None:
-                turns.append(turn)
+                turns_by_id[turn["id"]] = turn
         elif isinstance(item, llm.FunctionCall):
             calls.setdefault(item.call_id, _tool_call(item))
         elif isinstance(item, llm.FunctionCallOutput):
@@ -117,6 +120,7 @@ def build_call_record(
             call["output"] = _truncate(output.output, MAX_TOOL_OUTPUT_CHARS)
             call["is_error"] = output.is_error
 
+    turns = list(turns_by_id.values())
     if len(turns) > MAX_TURNS:
         logger.warning(
             "call record turns capped",
@@ -318,7 +322,10 @@ class CallRecordExporter:
                         await asyncio.sleep(self._retry_delay_s)
                     try:
                         response = await client.post(url, content=body, headers=headers)
-                    except httpx.TransportError as exc:  # connect/read errors and timeouts
+                    # Transport errors (connect/read/timeouts) and a response that can't be
+                    # decoded: either way the analyzer may not have the record, so try again
+                    # and then fall back to disk instead of losing it to export's catch-all.
+                    except httpx.RequestError as exc:
                         reason = type(exc).__name__
                         continue
                     if response.is_success:

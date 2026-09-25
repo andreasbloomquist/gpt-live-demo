@@ -27,7 +27,8 @@ export async function unlock(_prev: ActionResult, form: FormData): Promise<Actio
     return { error: "Enter the passcode." };
   }
   if (!(await tryUnlock(input))) {
-    // A small fixed delay makes online guessing slower; real rate limiting belongs at the edge.
+    // A fixed delay only slows a sequential guesser: parallel requests are not limited at all.
+    // The real brute-force defence is a rate limit at the edge (see frontend/README.md).
     await new Promise((r) => setTimeout(r, 500));
     return { error: "That passcode isn't right." };
   }

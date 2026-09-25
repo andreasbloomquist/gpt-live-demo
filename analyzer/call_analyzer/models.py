@@ -44,8 +44,19 @@ ShortText = Annotated[str, StringConstraints(max_length=256)]
 Identifier = Annotated[str, StringConstraints(min_length=1, max_length=128)]
 
 
+MIN_TIMESTAMP_YEAR = 1970  # before the Unix epoch is a client bug, not a call
+
+
 def _to_utc(value: dt.datetime) -> dt.datetime:
-    return value.astimezone(dt.timezone.utc)
+    # Bounded so storage can rely on a fixed-width, 4-digit-year UTC form (it sorts as text);
+    # astimezone() raises OverflowError near year 1 / 9999, which pydantic wouldn't turn into a 422.
+    try:
+        utc = value.astimezone(dt.timezone.utc)
+    except OverflowError:
+        raise ValueError("timestamp out of range") from None
+    if utc.year < MIN_TIMESTAMP_YEAR:
+        raise ValueError(f"timestamp must not be before {MIN_TIMESTAMP_YEAR}")
+    return utc
 
 
 UtcDatetime = Annotated[AwareDatetime, AfterValidator(_to_utc)]

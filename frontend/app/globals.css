@@ -16,18 +16,19 @@
   --surface-3: #e8e8ed;
   --glass: rgba(251, 251, 253, 0.72);
   --text: #1d1d1f;
-  --text-2: #6e6e73; /* 4.6:1 on --bg, 5.0:1 on white */
+  --text-2: #636366; /* 5.5:1 on --bg, 4.7:1 even on a gray pill over --bg */
   --hairline: rgba(0, 0, 0, 0.09);
   --hairline-strong: rgba(0, 0, 0, 0.16);
 
-  /* Accent & semantic colors (text-safe on surfaces) */
-  --accent: #0071e3;
-  --accent-hover: #0077ed;
-  --accent-soft: rgba(0, 113, 227, 0.1);
+  /* Accent & semantic colors (text-safe on surfaces: >= 4.5:1 for the small pill text
+     on its soft background, over both --bg and --surface) */
+  --accent: #0066cc;
+  --accent-hover: #0071e3;
+  --accent-soft: rgba(0, 102, 204, 0.08);
   --on-accent: #ffffff;
-  --green: #1a7f37;
+  --green: #177334;
   --green-soft: rgba(52, 199, 89, 0.14);
-  --amber: #a15c00;
+  --amber: #955400;
   --amber-soft: rgba(255, 159, 10, 0.16);
   --red: #c9182b;
   --red-soft: rgba(255, 59, 48, 0.12);
@@ -131,7 +132,6 @@ button { font: inherit; letter-spacing: inherit; color: inherit; }
   padding: 48px var(--gutter) 96px;
   flex: 1;
 }
-.page-narrow { max-width: 760px; }
 
 .eyebrow {
   font-size: 0.8125rem;
@@ -176,12 +176,6 @@ button { font: inherit; letter-spacing: inherit; color: inherit; }
 
 .btn-primary { background: var(--accent); color: var(--on-accent); }
 .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
-
-.btn-quiet { background: transparent; color: var(--accent); padding: 0 12px; }
-.btn-quiet:hover:not(:disabled) { background: var(--accent-soft); }
-
-.btn-danger { background: var(--red); color: #fff; }
-.btn-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--red) 88%, #000); }
 
 .btn-lg { min-height: 56px; padding: 0 30px; font-size: 1.0625rem; }
 .btn-lg svg { width: 20px; height: 20px; }

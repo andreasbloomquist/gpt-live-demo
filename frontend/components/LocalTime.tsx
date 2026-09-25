@@ -26,8 +26,10 @@ export function LocalTime({ iso, format = "datetime" }: { iso: string; format?: 
   const text = hydrated
     ? date.toLocaleString(undefined, OPTIONS[format])
     : `${date.toLocaleString("en-US", { ...OPTIONS[format], timeZone: "UTC" })}${format === "date" ? "" : " UTC"}`;
+  // The UTC text is identical on both sides except where ICU versions differ (e.g. the
+  // space before "PM" is U+202F in newer ICU); the client replaces it right away anyway.
   return (
-    <time dateTime={date.toISOString()}>
+    <time dateTime={date.toISOString()} suppressHydrationWarning>
       {text}
     </time>
   );

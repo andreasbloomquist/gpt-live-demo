@@ -121,6 +121,7 @@ a.row:focus-visible { border-radius: var(--radius-l); }
   padding: 56px 24px;
   text-align: center;
 }
+.state h1,
 .state h2 { font-size: 1.5rem; letter-spacing: -0.03em; }
 .state p { max-width: 30rem; color: var(--text-2); font-size: 0.9688rem; }
 .state :global(.btn) { margin-top: 12px; }

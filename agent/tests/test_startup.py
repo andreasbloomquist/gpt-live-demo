@@ -102,9 +102,18 @@ async def test_worker_validates_before_it_starts(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(main.AgentServer, "run", fake_run)
 
     monkeypatch.setattr(main, "get_settings", make_settings)
-    with pytest.raises(ConfigurationError, match="OPENAI_API_KEY"):
+    # SystemExit, not the ConfigurationError: LiveKit's CLI would catch and bury the latter.
+    with pytest.raises(SystemExit, match="OPENAI_API_KEY"):
         await main.server.run(devmode=False, unregistered=False)
     assert started == []  # never registered with LiveKit, so no job can be dispatched to it
+
+    def invalid_settings() -> Settings:
+        return Settings(_env_file=None, agent_timezone="Mars/Base")  # type: ignore[call-arg]
+
+    monkeypatch.setattr(main, "get_settings", invalid_settings)
+    with pytest.raises(SystemExit, match="AGENT_TIMEZONE"):
+        await main.server.run(devmode=False, unregistered=False)
+    assert started == []
 
     monkeypatch.setattr(main, "get_settings", lambda: make_settings(openai_api_key="sk-test"))
     await main.server.run(devmode=True, unregistered=False)

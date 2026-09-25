@@ -55,3 +55,11 @@ def test_invalid_record_file(tmp_path: Path, capsys: pytest.CaptureFixture[str])
     bad.write_text('{"schema_version": 1}')
     assert main(["analyze", str(bad)]) == 1
     assert "Invalid call record" in capsys.readouterr().err
+
+
+def test_unknown_log_level_is_a_config_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("LOG_LEVEL", "verbose")
+    assert main(["analyze", str(demo_files()[0])]) == 2
+    assert "LOG_LEVEL" in capsys.readouterr().err

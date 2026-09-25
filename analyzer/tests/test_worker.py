@@ -104,6 +104,15 @@ async def test_unexpected_errors_fail_without_leaking_details(repo, rubric: Rubr
     assert "4111" not in (state.error or "")
 
 
+async def test_unloadable_record_fails_instead_of_staying_running(repo, rubric: Rubric) -> None:
+    # E.g. a stored record that a newer build's CallRecord no longer accepts.
+    await repo.insert_call(make_record(call_id="a"))
+    await repo._run(lambda conn: conn.execute("UPDATE calls SET record_json = '{}'"))
+    await worker_for(repo, HeuristicProvider(), rubric).run_until_idle()
+    state = await status_of(repo, "a")
+    assert state.status == "failed"
+
+
 async def test_job_timeout_counts_as_retryable_failure(repo, rubric: Rubric) -> None:
     provider = ScriptedProvider(hang=True)
     await repo.insert_call(make_record(call_id="a"))

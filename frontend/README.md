@@ -67,7 +67,7 @@ Scores are 1–5 where higher is better, except **customer frustration**, where 
 ## Passcode gate (`DEMO_PASSCODE`)
 
 - **Unset** (default): open access, fine for localhost.
-- **Set**: the Live and Calls pages redirect to `/unlock`, and `POST /api/token` and every Server Action return an error until the visitor enters the passcode. A correct passcode sets an `httpOnly`, `SameSite=Strict` cookie (`Secure` in production) for 12 hours. The cookie holds `HMAC-SHA256(key = passcode, fixed label)`, so it proves the visitor once knew the passcode without storing it. Changing `DEMO_PASSCODE` logs everyone out. Comparisons are constant-time, the post-unlock redirect only accepts same-site paths, and a wrong guess waits 500 ms.
+- **Set**: the Live and Calls pages redirect to `/unlock`, and `POST /api/token` and every Server Action return an error until the visitor enters the passcode. A correct passcode sets an `httpOnly`, `SameSite=Strict` cookie (`Secure` in production) for 12 hours. The cookie holds `HMAC-SHA256(key = passcode, fixed label)`, so it proves the visitor once knew the passcode without storing it. Changing `DEMO_PASSCODE` logs everyone out. Comparisons are constant-time, the post-unlock redirect only accepts same-site paths, and a wrong guess waits 500 ms (which slows a sequential guesser, not parallel requests: that needs the rate limit below).
 
 This gate slows people down but isn't user auth: there are no accounts, and anyone with the passcode gets in.
 

@@ -131,3 +131,28 @@ async def test_summary_when_every_check_fails(heuristic_analyzer: CallAnalyzer) 
     assert (
         analysis.summary == "Every availability check for Nopa failed, so the caller got no answer."
     )
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        '{"status":"alternatives","nearest_available_times":[]}',
+        '{"status":"alternatives"}',
+        '{"status":"alternatives","nearest_available_times":5}',
+    ],
+)
+async def test_odd_tool_output_does_not_crash(
+    heuristic_analyzer: CallAnalyzer, output: str
+) -> None:
+    # Records are untrusted input; a crash here would fail the analysis as an internal error.
+    data = record_dict()
+    data["tool_calls"][0]["output"] = output
+    analysis = await heuristic_analyzer.analyze(make_record(**data))
+    assert analysis.summary is not None and "offered other times" in analysis.summary
+
+
+async def test_punctuation_only_turns_can_be_quoted(heuristic_analyzer: CallAnalyzer) -> None:
+    data = record_dict()
+    data["turns"][0] |= {"text": "?" * 300, "interrupted": True}
+    analysis = await heuristic_analyzer.analyze(make_record(**data))
+    assert analysis.status == "done"

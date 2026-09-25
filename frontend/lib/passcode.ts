@@ -70,9 +70,19 @@ export async function tryUnlock(input: string): Promise<boolean> {
   return true;
 }
 
-/** Only same-origin relative paths are valid post-unlock destinations (no open redirect). */
+/**
+ * Only same-origin relative paths are valid post-unlock destinations (no open redirect).
+ * Besides "//host" and "/\host", this rejects control characters and whitespace:
+ * browsers strip tabs and newlines from URLs, so "/\t/evil.example" would become
+ * "//evil.example" once it reached the Location header.
+ */
 export function safeReturnPath(next: unknown): string {
-  if (typeof next !== "string" || !next.startsWith("/") || next.startsWith("//") || next.includes("\\")) {
+  if (
+    typeof next !== "string" ||
+    next.length > 2048 ||
+    !/^\/(?![/\\])[\x21-\x7e]*$/.test(next) ||
+    next.includes("\\")
+  ) {
     return "/";
   }
   return next;

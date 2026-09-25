@@ -144,9 +144,10 @@ def _digest(value: str) -> bytes:
     return hashlib.sha256(value.encode()).digest()
 
 
-def require_token(request: Request) -> None:
+async def require_token(request: Request) -> None:
     """Bearer auth. Both sides are hashed first so the comparison is constant-time and doesn't
-    leak the token's length either."""
+    leak the token's length either. ``async`` because FastAPI runs sync dependencies in its
+    threadpool, which would cost a thread hop on every request for no benefit."""
     scheme, _, token = request.headers.get("authorization", "").partition(" ")
     expected: bytes = request.app.state.token_digest
     if scheme.lower() != "bearer" or not secrets.compare_digest(_digest(token.strip()), expected):
