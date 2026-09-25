@@ -215,8 +215,8 @@ def _log_composed_prompts(bundle: PromptBundle) -> None:
         extra={
             "profile": bundle.profile,
             "prompt_fingerprint": bundle.fingerprint,
-            "voice_fingerprint": bundle.short_fingerprint_for("voice"),
-            "backend_fingerprint": bundle.short_fingerprint_for("backend"),
+            "voice_version": bundle.short_fingerprint_for("voice"),
+            "backend_version": bundle.short_fingerprint_for("backend"),
             "voice_modules": list(bundle.modules["voice"]),
             "backend_modules": list(bundle.modules["backend"]),
             "tools": list(bundle.tools),
