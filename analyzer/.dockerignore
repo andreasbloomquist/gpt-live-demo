@@ -7,3 +7,4 @@ tests/
 .pytest_cache/
 .ruff_cache/
 Dockerfile
+.mypy_cache/

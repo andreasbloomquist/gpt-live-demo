@@ -47,12 +47,16 @@ _REASONING_MODEL = re.compile(r"^(gpt-5|o\d)")
 series). Others reject it with a 400, so a non-reasoning ``EVALS_JUDGE_MODEL`` gets none."""
 
 JUDGE_OUTPUT_TOKENS_ESTIMATE = 400
+_CHARS_PER_TOKEN = 4
+_INPUT_OVERHEAD_TOKENS = 100
+"""Delimiter tags and the structured-output schema around the rubric and transcript."""
 
 
 def estimate_judge_usd(rubric: str, transcript: str, model: str = JUDGE_MODEL) -> float:
-    """Pessimistic cost of one judge call (~4 characters per token, plus the instructions),
-    charged when the call fails without reporting usage."""
-    input_tokens = (len(JUDGE_INSTRUCTIONS) + len(rubric) + len(transcript)) // 4 + 100
+    """Pessimistic cost of one judge call, charged when the call fails without reporting
+    usage."""
+    chars = len(JUDGE_INSTRUCTIONS) + len(rubric) + len(transcript)
+    input_tokens = chars // _CHARS_PER_TOKEN + _INPUT_OVERHEAD_TOKENS
     return text_cost(model, input_tokens, JUDGE_OUTPUT_TOKENS_ESTIMATE)
 
 

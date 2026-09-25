@@ -56,11 +56,15 @@ All variables are server-only. None use the `NEXT_PUBLIC_` prefix, so none reach
 | --- | --- |
 | `app/api/token/route.ts` | `POST /api/token`: returns LiveKit connection details, `Cache-Control: no-store`. |
 | `components/live/*` | `LiveExperience` (hero, token fetch, `<LiveKitRoom>` with stable callbacks and mic-failure handling), `VoiceSession` (`useVoiceAssistant`, `BarVisualizer`, `TrackToggle`, `DisconnectButton`), `Transcript` (`useTranscriptions`, `role="log"`), `Orb`. |
+| `app/actions.ts` | Server Actions: `loadMoreCalls` (pagination), `reanalyze` (`POST /v1/calls/{id}/analyze`, then `refresh()`), `unlock`. The browser only ever talks to these and never to the analyzer. |
 | `lib/analyzer.ts` | Server-only analyzer client (`import "server-only"`). It uses an 8 s timeout (`AbortSignal.timeout`), `cache: "no-store"`, and minimal runtime shape checks. Every failure becomes a friendly `AnalyzerError`, while details go to the server log only. Call ids are checked against the analyzer's own call-id alphabet before they're put in a URL. |
 | `app/calls/**` | Server Components that call the analyzer. They include `loading.tsx` skeletons, empty and error states, and `not-found`. |
-| `app/actions.ts` | Server Actions: `loadMoreCalls` (pagination), `reanalyze` (`POST /v1/calls/{id}/analyze`, then `refresh()`), `unlock`. The browser only ever talks to these and never to the analyzer. |
+| `components/calls/*` | The Calls list (`CallList`, `CallCard`) plus pieces the detail page reuses: status pills (`Badges`), `ScoreRing`, empty/error `States`, and `AnalysisPoller`. |
 | `components/calls/AnalysisPoller.tsx` | While an analysis is `pending` or `running`, calls `router.refresh()` with exponential backoff (2.5 s up to 30 s). It pauses in background tabs and gives up after 3 minutes of visible time, then tells you to refresh. |
+| `components/call-detail/*` | Sections of the call detail page: `Scorecard`, `Flags`, `MetricsRow`, `Sparkline`, `CallTranscript`, `ReanalyzeButton`. |
 | `lib/types.ts` | TypeScript mirror of the analyzer's CallRecord / Analysis v1 contracts. |
+| `lib/dimensions.ts`, `lib/timeline.ts`, `lib/format.ts` | Scorecard labels (mirroring the analyzer rubric), turn/tool-call interleaving for the transcript, and number/duration formatting. |
+| `lib/passcode.ts` | The optional passcode gate (see below). |
 
 Scores are 1–5 where higher is better, except **customer frustration**, where 1 means no frustration. The scorecard colors that dimension inverted and labels it "Lower is better". When `analyzer.provider` is `heuristic`, the detail page shows an **Offline heuristic analysis** badge (and the Calls list a **Heuristic** badge), since those scores come from keyword rules, not an LLM.
 

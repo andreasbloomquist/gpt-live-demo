@@ -10,6 +10,7 @@ import "server-only";
 import { connection } from "next/server";
 import type {
   Analysis,
+  AnalysisStatus,
   AnalyzerInfo,
   CallDetail,
   CallPage,
@@ -18,6 +19,8 @@ import type {
 } from "@/lib/types";
 
 const TIMEOUT_MS = 8_000;
+/** Calls per page on the Calls screen (first page and each "Load more"). */
+const PAGE_SIZE = 12;
 
 export type AnalyzerErrorKind =
   | "not_configured"
@@ -129,9 +132,10 @@ function invalid(what: string): never {
 }
 
 function parseAnalyzerInfo(v: unknown): AnalyzerInfo | null {
-  if (!isObj(v) || !str(v.provider)) return null;
+  const provider = isObj(v) ? str(v.provider) : null;
+  if (!isObj(v) || !provider) return null;
   return {
-    provider: v.provider as string,
+    provider,
     model: str(v.model),
     rubric_version: str(v.rubric_version) ?? "?",
   };
@@ -148,17 +152,25 @@ function strings<K extends string>(v: unknown, keys: readonly K[]): Partial<Reco
   return out;
 }
 
+const ANALYSIS_STATUSES: readonly AnalysisStatus[] = ["pending", "running", "done", "failed"];
+
+/** An unknown status reads as "not analyzed" rather than breaking the row. */
+function parseStatus(v: unknown): AnalysisStatus | null {
+  return ANALYSIS_STATUSES.find((s) => s === v) ?? null;
+}
+
 function parseSummary(v: unknown): CallSummary {
-  if (!isObj(v) || !str(v.call_id)) invalid("list item without call_id");
+  const callId = isObj(v) ? str(v.call_id) : null;
+  if (!isObj(v) || !callId) invalid("list item without call_id");
   return {
-    call_id: v.call_id as string,
+    call_id: callId,
     started_at: str(v.started_at) ?? "",
     duration_s: num(v.duration_s) ?? 0,
     caller_intent: str(v.caller_intent),
     summary: str(v.summary),
     outcome: isObj(v.outcome) ? (v.outcome as CallSummary["outcome"]) : null,
     overall_score: num(v.overall_score),
-    status: (str(v.status) as CallSummary["status"]) ?? null,
+    status: parseStatus(v.status),
     turns: num(v.turns) ?? 0,
     analyzer: parseAnalyzerInfo(v.analyzer),
   };
@@ -169,12 +181,13 @@ function parseSummary(v: unknown): CallSummary {
  * normalized here: a wrong type in one field degrades that field, not the whole page.
  */
 function parseRecord(v: unknown): CallRecord {
-  if (!isObj(v) || !str(v.call_id) || !Array.isArray(v.turns)) invalid("record");
+  const callId = isObj(v) ? str(v.call_id) : null;
+  if (!isObj(v) || !callId || !Array.isArray(v.turns)) invalid("record");
   // Empty text is valid (a turn interrupted before any words were transcribed).
   const turns = v.turns.filter((t): t is Obj => isObj(t) && !!str(t.id) && str(t.text) !== null);
   return {
     schema_version: num(v.schema_version) ?? 1,
-    call_id: v.call_id as string,
+    call_id: callId,
     room: str(v.room) ?? "",
     agent_name: str(v.agent_name) ?? "",
     started_at: str(v.started_at) ?? "",
@@ -222,9 +235,10 @@ function parseAnalysis(v: unknown): Analysis | null {
 }
 
 // ---------------------------------------------------------------------------
+// Endpoints (analyzer `/v1` API).
 
-export async function listCalls(opts: { cursor?: string; limit?: number } = {}): Promise<CallPage> {
-  const params = new URLSearchParams({ limit: String(opts.limit ?? 12) });
+export async function listCalls(opts: { cursor?: string } = {}): Promise<CallPage> {
+  const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
   if (opts.cursor) {
     if (!isValidCursor(opts.cursor)) throw new AnalyzerError("bad_request");
     params.set("cursor", opts.cursor);

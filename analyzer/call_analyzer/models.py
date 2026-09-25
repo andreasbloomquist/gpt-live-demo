@@ -16,7 +16,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 
 from pydantic import (
     AfterValidator,
@@ -169,7 +169,7 @@ Dimension = Literal[
     "tone_empathy",
     "policy_adherence",
 ]
-DIMENSIONS: tuple[Dimension, ...] = Dimension.__args__  # type: ignore[attr-defined]
+DIMENSIONS: tuple[Dimension, ...] = get_args(Dimension)
 
 AnalysisStatus = Literal["pending", "running", "done", "failed"]
 OutcomeStatus = Literal["resolved", "partially_resolved", "unresolved", "not_applicable"]

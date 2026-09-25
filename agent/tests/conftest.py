@@ -6,21 +6,22 @@ import textwrap
 from pathlib import Path
 
 import pytest
-from prompt_helpers import PromptTree
+from helpers import PromptTree, make_settings
 
 from voice_agent.config import Settings
 
 
 @pytest.fixture(autouse=True)
 def _no_real_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hide real credentials from the environment so no test can use them by accident."""
     for var in ("OPENAI_API_KEY", "OPENTABLE_CLIENT_ID", "OPENTABLE_CLIENT_SECRET"):
         monkeypatch.delenv(var, raising=False)
 
 
 @pytest.fixture
 def settings() -> Settings:
-    # _env_file=None: ignore any developer .env so tests are hermetic.
-    return Settings(_env_file=None)  # type: ignore[call-arg]
+    """Default settings, unaffected by any developer ``.env`` so tests are hermetic."""
+    return make_settings()
 
 
 @pytest.fixture

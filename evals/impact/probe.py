@@ -9,8 +9,9 @@ A subprocess (rather than importlib tricks) guarantees the two trees never share
 and lets an old/broken base tree fail in isolation: any exception becomes ``{"ok": false}``
 and the detector falls back to "everything changed".
 
-Only the head tree's ``evals.toolschema`` is used (via ``--evals-root``) so both trees' tools
-are serialised by the *same* converter, which is what makes their schemas comparable.
+Both trees' tools are serialised by the planner's own ``evals.toolschema`` (via
+``--evals-root``), never the tree's copy: the *same* converter is what makes their schemas
+comparable.
 
 Prints a single JSON object to stdout. Never touches the network.
 """

@@ -1,17 +1,18 @@
 /**
- * POST /api/token — mints a short-lived LiveKit access token for the browser.
+ * POST /api/token: mints a short-lived LiveKit access token for the browser.
  *
  * The API key/secret never leave the server. Every call creates a fresh random
  * room, so each browser session gets its own agent. If LIVEKIT_AGENT_NAME is
  * set, the token also carries an explicit agent dispatch (needed when the
  * Python worker registers with `agent_name=...`, which disables auto-dispatch).
  *
+ * The grant is least-privilege: join this one room, publish the microphone only
+ * (no camera/screen, no data messages), and subscribe to the agent's audio.
+ *
  * SECURITY: every token starts a paid GPT-Live session. Without DEMO_PASSCODE this
  * route is open to anyone who can reach it (fine on localhost). With DEMO_PASSCODE set
  * it requires the unlock cookie (see lib/passcode.ts). Either way, add a rate limit
  * before exposing it publicly.
- * The grant is least-privilege: join this one room, publish the microphone only
- * (no camera/screen, no data messages), and subscribe to the agent's audio.
  */
 import { NextResponse } from "next/server";
 import {
@@ -39,10 +40,10 @@ export async function POST() {
   const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_AGENT_NAME } =
     process.env;
 
-  const missing = Object.entries({ LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET })
-    .filter(([, value]) => !value)
-    .map(([key]) => key);
-  if (missing.length > 0) {
+  if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
+    const missing = Object.entries({ LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET })
+      .filter(([, value]) => !value)
+      .map(([key]) => key);
     return NextResponse.json(
       {
         error: `Missing environment variable(s): ${missing.join(", ")}. ` +
@@ -81,7 +82,7 @@ export async function POST() {
   }
 
   const details: ConnectionDetails = {
-    serverUrl: LIVEKIT_URL!,
+    serverUrl: LIVEKIT_URL,
     roomName,
     participantToken: await token.toJwt(),
     participantName,

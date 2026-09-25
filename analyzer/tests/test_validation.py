@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from call_analyzer.analysis import CallAnalyzer, validate_draft
-from call_analyzer.models import DIMENSIONS, AssessmentDraft, CallRecord, Metrics
+from call_analyzer.models import DIMENSIONS, AssessmentDraft, CallRecord, Metrics, ProviderName
 from call_analyzer.providers.base import ProviderError
 from call_analyzer.rubric import Rubric
 from tests.factories import make_record
@@ -31,8 +31,8 @@ def draft(**score_overrides: Any) -> AssessmentDraft:
 
 
 class FixedProvider:
-    name = "openai"
-    model = "fake-model"
+    name: ProviderName = "openai"
+    model: str | None = "fake-model"
 
     def __init__(self, result: AssessmentDraft) -> None:
         self.result = result

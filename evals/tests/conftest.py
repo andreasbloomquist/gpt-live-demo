@@ -16,6 +16,9 @@ import pytest
 
 from evals.paths import REPO_ROOT
 
+EditFile = Callable[[str, Callable[[str], str]], None]
+"""The ``edit`` fixture: ``edit(relpath, fn)`` rewrites one file of the fixture repo."""
+
 _COPY = (
     "agent/voice_agent",
     "prompts",
@@ -75,7 +78,7 @@ def repo(template_repo: Path, tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def edit(repo: Path) -> Callable[[str, Callable[[str], str]], None]:
+def edit(repo: Path) -> EditFile:
     """``edit(relpath, fn)`` rewrites a file in the fixture repo's working tree."""
 
     def _edit(rel: str, fn: Callable[[str], str]) -> None:

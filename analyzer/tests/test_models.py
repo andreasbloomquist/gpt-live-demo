@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -67,7 +68,7 @@ def test_turn_limits() -> None:
         ({"unexpected": True}, "Extra inputs are not permitted"),
     ],
 )
-def test_invalid_records_are_rejected(overrides: dict, message: str) -> None:
+def test_invalid_records_are_rejected(overrides: dict[str, Any], message: str) -> None:
     with pytest.raises(ValidationError, match=message):
         make_record(**overrides)
 

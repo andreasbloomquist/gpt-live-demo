@@ -7,10 +7,13 @@ evals, a false negative ships an untested behaviour change.
 from __future__ import annotations
 
 import ast
+import difflib
 import hashlib
 import json
 import re
 from typing import Any
+
+import yaml
 
 # --------------------------------------------------------------------------------------------
 # Hashing
@@ -82,8 +85,6 @@ def line_diff_stats(old: str, new: str) -> tuple[int, int]:
     """(+added, -removed) normalized lines, for human-readable reasons."""
     a = normalize_prompt_for_fingerprint(old).splitlines()
     b = normalize_prompt_for_fingerprint(new).splitlines()
-    import difflib
-
     added = removed = 0
     for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(a=a, b=b).get_opcodes():
         if tag in ("replace", "delete"):
@@ -192,8 +193,6 @@ def settings_fields(source: str) -> tuple[dict[str, str], str]:
 def normalized_yaml(text: str) -> str:
     """Canonical JSON of a YAML document: comments, key order, quoting and flow/block style
     are irrelevant to the runner, so they are irrelevant to the fingerprint."""
-    import yaml
-
     try:
         return json.dumps(yaml.safe_load(text), sort_keys=True, default=str)
     except yaml.YAMLError:

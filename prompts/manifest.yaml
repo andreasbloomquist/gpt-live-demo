@@ -13,7 +13,7 @@ variables:
   brand_name: Tablesite
   locale: en-US
 
-# Values injected by the agent at session start (see voice_agent.main). When not supplied
+# Values injected by the agent at session start (see voice_agent.runtime). When not supplied
 # (CLI, evals, change detection) they render as `<runtime:name>` placeholders, and they are
 # always excluded from fingerprints so the fingerprint identifies the prompt version, not the day.
 runtime_variables:

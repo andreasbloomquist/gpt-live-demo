@@ -80,9 +80,10 @@ def _timeline(record: CallRecord) -> list[str]:
     turns = [(t.started_at, _turn_line(t, origin)) for t in record.turns]
     tools = [(c.created_at, _tool_line(c, origin)) for c in record.tool_calls]
     items = turns + tools
-    if all(when is not None for when, _ in items):
+    timed = [(when, line) for when, line in items if when is not None]
+    if len(timed) == len(items):
         # sorted() is stable, so a tool call logged at the same instant as a turn follows it.
-        items = sorted(items, key=lambda item: item[0])  # type: ignore[arg-type,return-value]
+        return [line for _, line in sorted(timed, key=lambda item: item[0])]
     return [line for _, line in items]
 
 

@@ -453,3 +453,14 @@
   letter-spacing: 0;
 }
 .provenance code { font-size: 0.75rem; color: var(--text); overflow-wrap: anywhere; }
+
+/* ------------------------------------------- loading skeleton (loading.tsx) */
+/* Rules that set border-radius are qualified with the global .skeleton so they beat its default. */
+.skeletonBack { width: 70px; height: 16px; margin-bottom: 36px; }
+.skeletonDate { width: 180px; height: 14px; }
+.skeletonTitle { width: 70%; height: 40px; margin-top: 14px; }
+.skeletonLede { width: 90%; height: 18px; margin-top: 18px; }
+.skeletonLedeEnd { width: 60%; height: 18px; margin-top: 8px; }
+:global(.skeleton).skeletonRing { width: 112px; height: 112px; border-radius: 50%; }
+.skeletonGrid { margin-top: 48px; }
+:global(.skeleton).skeletonDim { height: 170px; border-radius: 20px; }

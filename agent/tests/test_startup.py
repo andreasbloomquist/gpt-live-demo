@@ -1,11 +1,14 @@
-"""Call-recording settings and the worker's startup (preflight) validation."""
+"""Worker startup: import without keys, call-recording settings, and preflight validation."""
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
+from helpers import make_settings
 from pydantic import ValidationError
 
 from voice_agent import main
@@ -14,8 +17,16 @@ from voice_agent.recording import CallRecordExporter
 from voice_agent.tools import UnknownToolError
 
 
-def make_settings(**overrides: Any) -> Settings:
-    return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]
+def test_main_imports_without_keys() -> None:
+    env = {"PATH": "", "PYTHONPATH": ":".join(sys.path)}
+    proc = subprocess.run(
+        [sys.executable, "-c", "import voice_agent.main as m; assert m.server"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert proc.returncode == 0, proc.stderr
 
 
 # --- Settings ------------------------------------------------------------------------------
@@ -110,7 +121,7 @@ async def test_worker_validates_before_it_starts(monkeypatch: pytest.MonkeyPatch
     assert started == []  # never registered with LiveKit, so no job can be dispatched to it
 
     def invalid_settings() -> Settings:
-        return Settings(_env_file=None, agent_timezone="Mars/Base")  # type: ignore[call-arg]
+        return make_settings(agent_timezone="Mars/Base")
 
     monkeypatch.setattr(main, "get_settings", invalid_settings)
     await main.server.run(devmode=False, unregistered=False)

@@ -7,14 +7,14 @@
 import styles from "./Orb.module.css";
 
 type Props = {
+  /** Agent state (`useVoiceAssistant().state`, or "idle"/"connecting" before the call). */
   state: string;
-  size?: "md" | "lg";
   children?: React.ReactNode;
 };
 
-export function Orb({ state, size = "lg", children }: Props) {
+export function Orb({ state, children }: Props) {
   return (
-    <div className={`${styles.orb} ${styles[size]}`} data-state={state} aria-hidden="true">
+    <div className={styles.orb} data-state={state} aria-hidden="true">
       <div className={styles.glow} />
       <div className={styles.sphere}>
         <div className={styles.swirl} />

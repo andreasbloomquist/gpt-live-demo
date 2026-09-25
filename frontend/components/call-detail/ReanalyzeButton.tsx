@@ -6,7 +6,14 @@ import { reanalyze } from "@/app/actions";
 import { RefreshIcon } from "@/components/icons";
 import styles from "./detail.module.css";
 
-export function ReanalyzeButton({ callId, busy, label = "Re-analyze" }: { callId: string; busy: boolean; label?: string }) {
+type Props = {
+  callId: string;
+  /** True while an analysis is already queued or running (disables the button). */
+  busy: boolean;
+  label?: string;
+};
+
+export function ReanalyzeButton({ callId, busy, label = "Re-analyze" }: Props) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const working = pending || busy;

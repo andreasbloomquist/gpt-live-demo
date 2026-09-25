@@ -33,6 +33,12 @@ const FEATURES = [
   },
 ];
 
+/** The `error` string from a failed /api/token response body, if it has one. */
+function tokenErrorMessage(body: unknown): string | null {
+  if (typeof body !== "object" || body === null || !("error" in body)) return null;
+  return typeof body.error === "string" ? body.error : null;
+}
+
 export function LiveExperience() {
   const [details, setDetails] = useState<ConnectionDetails | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -44,9 +50,9 @@ export function LiveExperience() {
     try {
       const res = await fetch("/api/token", { method: "POST", cache: "no-store" });
       // A crashed route or a proxy can answer with HTML: don't surface a JSON parse error.
-      const body = await res.json().catch(() => null);
+      const body: unknown = await res.json().catch(() => null);
       if (!res.ok || !body) {
-        throw new Error(body?.error ?? `Token request failed (HTTP ${res.status})`);
+        throw new Error(tokenErrorMessage(body) ?? `Token request failed (HTTP ${res.status})`);
       }
       setDetails(body as ConnectionDetails);
     } catch (e) {

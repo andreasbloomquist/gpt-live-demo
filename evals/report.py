@@ -113,6 +113,12 @@ def results_markdown(results: list[dict[str, Any]]) -> str:
         trials = [t for c in cases for t in c["trials"]]
         rates = [c["pass_rate"] for c in cases]
         hats = [c["pass_hat_k"] for c in cases if c.get("pass_hat_k") is not None]
+        latencies = [t["latency_s"] for t in trials]
+        first_responses = [
+            t["first_response_latency_s"]
+            for t in trials
+            if t.get("first_response_latency_s") is not None
+        ]
         icon = {"completed": "✅" if data["passed"] else "❌", "skipped": "⏭️"}.get(
             data["status"], "⚠️"
         )
@@ -122,8 +128,7 @@ def results_markdown(results: list[dict[str, Any]]) -> str:
             f"{sum(c['passed'] for c in cases)}/{len(cases)} | "
             f"{(sum(rates) / len(rates)) if rates else 0:.0%} | "
             f"{f'{min(hats):.2f}' if hats else '—'} | "
-            f"{_median([t['latency_s'] for t in trials])} | "
-            f"{_median([t['first_response_latency_s'] for t in trials if t.get('first_response_latency_s') is not None])} | "  # noqa: E501
+            f"{_median(latencies)} | {_median(first_responses)} | "
             f"${data['cost_usd']:.3f} |"
         )
         for case in cases:

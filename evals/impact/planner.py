@@ -56,10 +56,9 @@ class Overrides:
     skip_all: str | None = None
     """Reason string when nothing may run (``evals:skip``). Wins over ``force_all``."""
     only_suites: frozenset[str] | None = None
+    """Restrict the plan to these suites (``None``: all)."""
     only_tiers: frozenset[str] | None = None
-
-
-# --------------------------------------------------------------------------------------------
+    """Restrict the plan to these tiers (``None``: all)."""
 
 
 def describe_change(key: str, base: Snapshot, head: Snapshot) -> str:
@@ -96,9 +95,9 @@ def describe_change(key: str, base: Snapshot, head: Snapshot) -> str:
         return f"model construction code (model.py, incl. backend options) {ast_verb}"
     if kind == "code.voice_runtime":
         return f"voice runtime code (agent.py/main.py) {ast_verb}"
-    if kind.startswith("config."):
-        if kind == "config.logic":
-            return f"settings module logic {ast_verb}"
+    if kind == "config.logic":
+        return f"settings module logic {ast_verb}"
+    if kind in ("config.voice", "config.shared"):
         return f"setting `{arg}` default: {b.detail if b else '∅'} → {h.detail if h else '∅'}"
     if kind == "suite":
         return f"suite definition `{arg}.yaml` {verb}"
@@ -110,20 +109,14 @@ def describe_change(key: str, base: Snapshot, head: Snapshot) -> str:
 
 
 def changed_keys(base: Snapshot, head: Snapshot) -> list[str]:
+    """Component keys added, removed, or with a different digest between the snapshots."""
+
+    def digest(snap: Snapshot, key: str) -> str | None:
+        component = snap.components.get(key)
+        return component.digest if component is not None else None
+
     keys = set(base.components) | set(head.components)
-    return sorted(
-        k
-        for k in keys
-        if (base.components.get(k) or _MISSING).digest
-        != (head.components.get(k) or _MISSING).digest
-    )
-
-
-class _Missing:
-    digest = "<missing>"
-
-
-_MISSING = _Missing()
+    return sorted(k for k in keys if digest(base, k) != digest(head, k))
 
 
 def _target(info: SuiteInfo, base: Snapshot, head: Snapshot) -> rules.SuiteTarget:

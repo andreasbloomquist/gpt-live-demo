@@ -12,6 +12,7 @@ from typing import Any
 import httpx2
 import openai
 import pytest
+from pydantic import SecretStr
 
 from call_analyzer.analysis import CallAnalyzer
 from call_analyzer.config import ConfigurationError, Settings
@@ -256,7 +257,9 @@ async def test_out_of_range_scores_from_the_llm_are_dropped(rubric: Rubric) -> N
 def test_factory_picks_provider_from_settings() -> None:
     assert isinstance(build_provider(Settings(provider="heuristic")), HeuristicProvider)
     assert isinstance(build_provider(Settings(provider="auto", api_key=None)), HeuristicProvider)
-    provider = build_provider(Settings(provider="auto", api_key="sk-x", model="gpt-5.4-nano"))
+    provider = build_provider(
+        Settings(provider="auto", api_key=SecretStr("sk-x"), model="gpt-5.4-nano")
+    )
     assert isinstance(provider, OpenAIProvider) and provider.model == "gpt-5.4-nano"
     with pytest.raises(ConfigurationError, match="ANALYZER_API_KEY"):
         build_provider(Settings(provider="openai", api_key=None))

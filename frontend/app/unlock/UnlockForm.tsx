@@ -1,5 +1,6 @@
 "use client";
 
+/** The passcode form. `next` is the already-sanitized page to return to after unlocking. */
 import { useActionState } from "react";
 import { unlock } from "@/app/actions";
 import { LockIcon } from "@/components/icons";
@@ -26,7 +27,7 @@ export function UnlockForm({ next }: { next: string }) {
           autoComplete="current-password"
           placeholder="Passcode"
           required
-          maxLength={256}
+          maxLength={256} // same limit as MAX_PASSCODE_LENGTH in app/actions.ts
           autoFocus
           className={styles.input}
           aria-invalid={state.error ? true : undefined}

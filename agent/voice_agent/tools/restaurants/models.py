@@ -13,6 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 AvailabilityStatus = Literal["available", "alternatives", "unavailable", "closed"]
 
+MAX_PARTY_SIZE = 20
+
 
 class AvailabilityQuery(BaseModel):
     """A validated availability request. Dates/times are already absolute (resolved by the LLM)."""
@@ -22,7 +24,7 @@ class AvailabilityQuery(BaseModel):
     restaurant: str = Field(min_length=1, max_length=120)
     date: dt.date
     time: dt.time
-    party_size: int = Field(ge=1, le=20)
+    party_size: int = Field(ge=1, le=MAX_PARTY_SIZE)
     city: str | None = Field(default=None, max_length=80)
 
     @field_validator("restaurant", "city")
@@ -63,10 +65,10 @@ class RestaurantAvailability(BaseModel):
         Only the few slots closest to the requested time are included; the backend model is
         instructed to offer at most three anyway.
         """
-        requested = _minutes(self.requested_time)
+        requested = hhmm_to_minutes(self.requested_time)
         # A provider may list the same time once per seating area; the caller only needs it once.
         times = {s.time for s in self.slots}
-        nearest = sorted(times, key=lambda t: (abs(_minutes(t) - requested), t))
+        nearest = sorted(times, key=lambda t: (abs(hhmm_to_minutes(t) - requested), t))
         out: dict[str, Any] = {
             "restaurant": self.restaurant,
             "date": self.date.isoformat(),
@@ -85,6 +87,7 @@ class RestaurantAvailability(BaseModel):
         return out
 
 
-def _minutes(hhmm: str) -> int:
+def hhmm_to_minutes(hhmm: str) -> int:
+    """Minutes since midnight for a 24h ``HH:MM`` string."""
     hours, minutes = hhmm.split(":")
     return int(hours) * 60 + int(minutes)

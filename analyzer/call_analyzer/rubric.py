@@ -84,8 +84,8 @@ class Rubric(BaseModel):
         # the weight sum so 72.4999999 from exact-72.5 inputs still rounds to 73.
         overall = math.floor(weighted / weight_sum + 0.5 + 1e-9)
         for cap in self.caps:
-            result = scores.get(cap.dimension)
-            if result is not None and result.score <= cap.at_or_below:
+            capped = scores.get(cap.dimension)
+            if capped is not None and capped.score <= cap.at_or_below:
                 overall = min(overall, cap.max_overall)
         return overall
 
@@ -99,4 +99,5 @@ def load_rubric(path: Path | str = DEFAULT_RUBRIC_PATH) -> Rubric:
 
 @lru_cache(maxsize=1)
 def default_rubric() -> Rubric:
+    """The bundled ``rubric.yaml``, parsed once per process."""
     return load_rubric(DEFAULT_RUBRIC_PATH)

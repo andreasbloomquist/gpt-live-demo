@@ -3,7 +3,7 @@ import styles from "./calls.module.css";
 
 type Props = { score: number | null; size?: number; label?: string };
 
-export function scoreTone(score: number): "green" | "amber" | "red" {
+function scoreTone(score: number): "green" | "amber" | "red" {
   return score >= 80 ? "green" : score >= 60 ? "amber" : "red";
 }
 

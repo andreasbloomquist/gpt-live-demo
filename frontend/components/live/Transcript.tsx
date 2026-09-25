@@ -17,10 +17,11 @@ import { useEffect, useRef } from "react";
 import { useLocalParticipant, useTranscriptions } from "@livekit/components-react";
 import styles from "./Live.module.css";
 
-const SEGMENT_ID = "lk.segment_id";
-const FINAL = "lk.transcription_final";
+// Stream attributes set by livekit-agents on each transcription stream.
+const SEGMENT_ID_ATTR = "lk.segment_id";
+const FINAL_ATTR = "lk.transcription_final";
 
-const timeFmt = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+const TIME_FORMAT = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 
 export function Transcript({ agentSpeaking }: { agentSpeaking: boolean }) {
   const transcriptions = useTranscriptions();
@@ -54,11 +55,11 @@ export function Transcript({ agentSpeaking }: { agentSpeaking: boolean }) {
             // header always says non-final (its final flag rides on the stream trailer,
             // which the hook doesn't surface), so for Ava use "still speaking" instead.
             const interim = isUser
-              ? attrs[FINAL] === "false"
+              ? attrs[FINAL_ATTR] === "false"
               : agentSpeaking && i === lines.length - 1;
             return (
               <div
-                key={attrs[SEGMENT_ID] ?? t.streamInfo.id}
+                key={attrs[SEGMENT_ID_ATTR] ?? t.streamInfo.id}
                 className={`${styles.msg} ${isUser ? styles.fromUser : styles.fromAgent}`}
                 data-interim={interim || undefined}
               >
@@ -67,7 +68,7 @@ export function Transcript({ agentSpeaking }: { agentSpeaking: boolean }) {
                   {t.text}
                 </p>
                 <span className={styles.meta} aria-hidden="true">
-                  {isUser ? "You" : "Ava"} · {timeFmt.format(t.streamInfo.timestamp)}
+                  {isUser ? "You" : "Ava"} · {TIME_FORMAT.format(t.streamInfo.timestamp)}
                   {interim && (isUser ? " · transcribing…" : " · speaking…")}
                 </span>
               </div>

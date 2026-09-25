@@ -1,6 +1,9 @@
+"""Tool registry: name resolution, tool schemas, and reservation-provider selection."""
+
 from __future__ import annotations
 
 import pytest
+from helpers import make_settings
 from livekit.agents import FunctionTool
 from livekit.agents.llm import utils as llm_utils
 from livekit.plugins.openai.tools import WebSearch
@@ -45,14 +48,13 @@ def test_unknown_tool(settings: Settings) -> None:
 
 
 def test_opentable_requires_credentials() -> None:
-    settings = Settings(_env_file=None, restaurant_provider="opentable")  # type: ignore[call-arg]
+    settings = make_settings(restaurant_provider="opentable")
     with pytest.raises(ConfigurationError, match="OPENTABLE_CLIENT_ID"):
         resolve_tools(["check_restaurant_availability"], settings)
 
 
 def test_opentable_rejects_empty_secret() -> None:
-    settings = Settings(  # type: ignore[call-arg]
-        _env_file=None,
+    settings = make_settings(
         restaurant_provider="opentable",
         opentable_client_id="id",
         opentable_client_secret="",
@@ -64,8 +66,7 @@ def test_opentable_rejects_empty_secret() -> None:
 def test_opentable_provider_is_per_session() -> None:
     # Not cached per process: its asyncio.Lock binds to one event loop, and LiveKit's thread
     # executor runs each job on its own loop.
-    settings = Settings(  # type: ignore[call-arg]
-        _env_file=None,
+    settings = make_settings(
         restaurant_provider="opentable",
         opentable_client_id="id",
         opentable_client_secret="secret",

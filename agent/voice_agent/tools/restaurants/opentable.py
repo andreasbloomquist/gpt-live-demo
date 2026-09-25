@@ -47,6 +47,10 @@ RESTAURANT_SEARCH_PATH = "/v1/restaurants/search"
 AVAILABILITY_PATH = "/v1/restaurants/{rid}/availability"
 
 _TOKEN_REFRESH_MARGIN_S = 60.0
+_DEFAULT_TOKEN_LIFETIME_S = 3600.0  # when the OAuth response omits ``expires_in``
+_MAX_CONNECT_TIMEOUT_S = 3.0
+_SEARCH_WINDOW_MINUTES = 90  # slots requested on either side of the desired time
+_ERROR_BODY_PREVIEW_CHARS = 200  # how much of an error response goes into the log detail
 
 
 class OpenTableProvider:
@@ -70,7 +74,7 @@ class OpenTableProvider:
         self._client_secret = client_secret
         self._base_url = base_url.rstrip("/")
         self._oauth_url = oauth_url
-        self._timeout = httpx.Timeout(timeout_s, connect=min(timeout_s, 3.0))
+        self._timeout = httpx.Timeout(timeout_s, connect=min(timeout_s, _MAX_CONNECT_TIMEOUT_S))
         self._http_client = http_client
         self._token: str | None = None
         self._token_expires_at = 0.0
@@ -117,12 +121,15 @@ class OpenTableProvider:
             if resp.status_code != 200:
                 # Bad credentials are an operator problem; the caller just hears "unavailable".
                 raise ProviderUnavailableError(
-                    detail=f"oauth failed with HTTP {resp.status_code}: {resp.text[:200]}"
+                    detail=(
+                        f"oauth failed with HTTP {resp.status_code}: "
+                        f"{resp.text[:_ERROR_BODY_PREVIEW_CHARS]}"
+                    )
                 )
             try:
                 body = resp.json()
                 token = str(body["access_token"])
-                expires_in = float(body.get("expires_in", 3600))
+                expires_in = float(body.get("expires_in", _DEFAULT_TOKEN_LIFETIME_S))
             except (ValueError, KeyError, TypeError) as exc:
                 raise ProviderUnavailableError(detail=f"malformed oauth response: {exc}") from exc
             self._token = token
@@ -160,7 +167,7 @@ class OpenTableProvider:
     @staticmethod
     def _check_response(resp: httpx.Response, path: str) -> dict[str, Any]:
         status = resp.status_code
-        detail = f"GET {path} -> HTTP {status}: {resp.text[:200]}"
+        detail = f"GET {path} -> HTTP {status}: {resp.text[:_ERROR_BODY_PREVIEW_CHARS]}"
         if status == 404:
             raise RestaurantNotFoundError(detail=detail)
         if status in (400, 422):
@@ -211,8 +218,8 @@ class OpenTableProvider:
         params = {
             "start_date_time": start.strftime("%Y-%m-%dT%H:%M"),
             "party_size": query.party_size,
-            "forward_minutes": 90,
-            "backward_minutes": 90,
+            "forward_minutes": _SEARCH_WINDOW_MINUTES,
+            "backward_minutes": _SEARCH_WINDOW_MINUTES,
         }
         # The id comes from the API response; quote it so it can't alter the request path.
         path = AVAILABILITY_PATH.format(rid=quote(str(rid), safe=""))

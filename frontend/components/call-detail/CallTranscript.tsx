@@ -4,7 +4,7 @@
  * evidence quotes, flags, and sentiment points can link to it (highlighted via :target).
  */
 import { AlertIcon, InterruptIcon, ToolIcon } from "@/components/icons";
-import { formatClock } from "@/lib/format";
+import { formatClock, formatPercent } from "@/lib/format";
 import { buildTimeline, offsetFrom } from "@/lib/timeline";
 import type { CallRecord, ToolCall, Turn } from "@/lib/types";
 import styles from "./detail.module.css";
@@ -117,13 +117,13 @@ function Legend() {
         <span className={styles.conf} data-level="high">97%</span> Caller speech-to-text confidence
       </li>
       <li>
-        <span className={styles.conf} data-level="medium">72%</span> Medium (below {HIGH_CONFIDENCE * 100}%)
+        <span className={styles.conf} data-level="medium">72%</span> Medium (below {formatPercent(HIGH_CONFIDENCE)})
       </li>
       <li>
         <span className={styles.conf} data-level="low">
           <AlertIcon /> Low
         </span>{" "}
-        Below {LOW_CONFIDENCE * 100}%: likely misheard
+        Below {formatPercent(LOW_CONFIDENCE)}: likely misheard
       </li>
       <li>
         <span className={styles.interrupted}>

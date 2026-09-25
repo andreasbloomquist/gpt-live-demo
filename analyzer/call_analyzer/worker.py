@@ -43,13 +43,16 @@ def _exc_fields(exc: BaseException) -> dict[str, str]:
 
 def backoff_delay(attempt: int, base_s: float, retry_after_s: float | None = None) -> float:
     """Exponential backoff with +/-20% jitter; never earlier than a server's Retry-After."""
-    delay = min(MAX_BACKOFF_S, base_s * 2 ** max(0, attempt - 1)) * random.uniform(0.8, 1.2)
+    growth: int = 2 ** max(0, attempt - 1)
+    delay = min(MAX_BACKOFF_S, base_s * growth) * random.uniform(0.8, 1.2)
     if retry_after_s is not None:
         delay = max(delay, retry_after_s)
     return delay
 
 
 class AnalysisWorker:
+    """Runs ``concurrency`` claim-analyze-store loops as asyncio tasks (see module docstring)."""
+
     def __init__(
         self,
         repo: CallRepository,

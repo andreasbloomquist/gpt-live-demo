@@ -25,7 +25,8 @@ from evals.runners.common import (
     TrialResult,
     pass_hat_k,
 )
-from evals.schema import Expect, Suite, load_suites, suite_json_schema
+from evals.runners.harness import Conversation
+from evals.schema import Expect, Suite, Tier, load_suites, suite_json_schema
 
 # ----------------------------------------------------------------------------- schema
 
@@ -175,7 +176,7 @@ def test_budget_reservations_are_hard() -> None:
 class _FakeRunner:
     """Scripted tier runner: trial N passes iff N is in ``passing``."""
 
-    tier = "brain"
+    tier: Tier = "brain"
     concurrency = 2
 
     def __init__(self, passing: set[int]) -> None:
@@ -188,8 +189,7 @@ class _FakeRunner:
     def estimate_trial_usd(self, suite: Suite, case: object) -> float:
         return 0.01
 
-    async def converse(self, suite: Suite, case: object, trial: int):
-        from evals.runners.harness import Conversation
+    async def converse(self, suite: Suite, case: object, trial: int) -> Conversation:
 
         self.calls += 1
         calls = [ToolCall("t", {})] if trial in self.passing else []
@@ -278,7 +278,7 @@ def test_toolschema_matches_gpt_live_delegation() -> None:
             """Nested tool."""
             return n
 
-    tools = [WebSearch(), lookup, Kit(id="kit")]
+    tools: list[llm.Tool | llm.Toolset] = [WebSearch(), lookup, Kit(id="kit")]
     expected = _build_delegation_tools(llm.ToolContext(tools).flatten())
     assert tools_to_responses_schemas(tools) == expected
     assert [s.get("name") or s["type"] for s in expected] == ["lookup", "nested", "web_search"]
@@ -323,3 +323,12 @@ def test_run_without_key_skips_gracefully(tmp_path: Path, monkeypatch: pytest.Mo
 
 def test_validate_cross_checks_agent() -> None:
     assert cli.main(["validate"]) == 0
+
+
+def test_dry_run_estimate_uses_configured_backend_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GPT_LIVE_BACKEND_MODEL", "gpt-4.1-mini")
+    assert cli.configured_backend_model() == "gpt-4.1-mini"
+    suite = load_suites(names=["web_search"])["web_search"]
+    _, cheap = cli._estimate("brain", suite, None, "gpt-4.1-mini")
+    _, default = cli._estimate("brain", suite, None, cli.DEFAULT_BACKEND_MODEL)
+    assert cheap < default

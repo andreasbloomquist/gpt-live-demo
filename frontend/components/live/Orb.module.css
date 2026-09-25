@@ -5,10 +5,8 @@
   height: var(--size);
   flex: none;
 }
-.md { --size: 168px; }
 @media (max-width: 600px) {
   .orb { --size: 200px; }
-  .md { --size: 148px; }
 }
 
 .glow {

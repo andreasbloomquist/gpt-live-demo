@@ -9,6 +9,7 @@ should not be asked to excuse a wrong tool call.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -22,6 +23,16 @@ class ToolCall:
     arguments: dict[str, Any]
     output: str | None = None
     is_error: bool = False
+
+
+def parse_tool_arguments(raw: str | None) -> dict[str, Any]:
+    """A tool call's JSON arguments as a dict. Malformed or non-object JSON (the model's
+    mistake, worth seeing in the transcript) is kept under ``__raw__`` / ``__value__``."""
+    try:
+        value = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return {"__raw__": raw}
+    return value if isinstance(value, dict) else {"__value__": value}
 
 
 @dataclass

@@ -20,7 +20,7 @@ pytest.importorskip("voice_agent.model")
 
 from evals.runners.assertions import check_expectations
 from evals.runners.brain import BrainRunner
-from evals.schema import load_suites
+from evals.schema import Tier, load_suites
 
 IN_TWO_DAYS = (dt.date.today() + dt.timedelta(days=2)).isoformat()  # safely in the future in any tz
 
@@ -283,7 +283,7 @@ def test_judge_transcript_cannot_escape_its_delimiters() -> None:
 class _CheapRunner:
     """Tier runner whose static estimate is pessimistic compared with its real cost."""
 
-    tier = "brain"
+    tier: Tier = "brain"
     concurrency = 1
 
     def __init__(self, crash: bool = False) -> None:

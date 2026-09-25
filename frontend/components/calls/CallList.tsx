@@ -45,7 +45,7 @@ export function CallList({ initial }: { initial: CallPage }) {
         ))}
       </ul>
       {error && (
-        <p className="notice" role="alert" style={{ marginTop: 16 }}>
+        <p className={`notice ${styles.loadError}`} role="alert">
           <AlertIcon />
           <span>{error}</span>
         </p>

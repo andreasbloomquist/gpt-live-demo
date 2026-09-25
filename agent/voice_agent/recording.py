@@ -222,6 +222,8 @@ Destination = Literal["analyzer", "file", "failed"]
 
 @dataclasses.dataclass(frozen=True)
 class ExportResult:
+    """Where a record ended up: the analyzer, a file in ``CALL_RECORDS_DIR``, or nowhere."""
+
     destination: Destination
     path: Path | None = None
     detail: str | None = None  # why the analyzer was skipped or failed (no transcript content)
@@ -265,6 +267,7 @@ class CallRecordExporter:
         return cls(settings.call_records_dir, analyzer_url=url, token=token)
 
     async def export(self, record: Mapping[str, Any]) -> ExportResult:
+        """Send ``record`` to the analyzer or disk, log the outcome, and never raise."""
         raw_id = record.get("call_id")
         call_id = raw_id if isinstance(raw_id, str) else ""  # str(None) would be a valid id
         turns = record.get("turns")
@@ -292,6 +295,7 @@ class CallRecordExporter:
         return result
 
     async def _export(self, call_id: str, record: Mapping[str, Any]) -> ExportResult:
+        """Try the analyzer (if configured and the body fits), else write the record to disk."""
         if not CALL_ID_PATTERN.fullmatch(call_id):
             # Never build a file path from an unvalidated id.
             return ExportResult("failed", detail="invalid call_id")

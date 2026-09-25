@@ -32,12 +32,21 @@ from evals.schema import TIERS
 FULL_LABEL = "evals:full"
 SKIP_LABEL = "evals:skip"
 _TRUTHY = {"1", "true", "yes", "on"}
+EXIT_OK, EXIT_ERRORS, EXIT_CONFIG = 0, 1, 2
+
+# The checkout that holds this ``evals`` package. Both trees are fingerprinted with its code.
+EVALS_ROOT = Path(__file__).resolve().parents[2]
 
 # CI runs the *base* commit's planner (see the `plan` job in .github/workflows/evals.yml), so a
-# PR cannot rewrite the rules that judge it. A PR that changes the planner or that bootstrap is
-# judged by nobody trustworthy, so it gets everything. This check lives in the base's copy too.
+# PR cannot rewrite the rules that judge it. A PR that changes the planner, or that workflow,
+# has no trustworthy judge, so it runs everything. The workflow repeats this check (and also
+# covers the bootstrap case, a base with no planner), passing PLANNER_CHANGED's text as reason.
 PLANNER_PATHS = ("evals/impact/", ".github/workflows/evals.yml")
 PLANNER_CHANGED = "planner code changed: running everything"
+
+
+class PlanError(ValueError):
+    """The request cannot be planned (bad ref, unknown suite/tier filter)."""
 
 
 def _csv(value: str | None) -> frozenset[str] | None:
@@ -71,10 +80,6 @@ def resolve_overrides(args: argparse.Namespace) -> Overrides:
         only_suites=_csv(args.suites),
         only_tiers=_csv(args.tiers),
     )
-
-
-class PlanError(ValueError):
-    """The request cannot be planned (bad ref, unknown suite/tier filter)."""
 
 
 def check_filters(overrides: Overrides, suites: dict[str, SuiteInfo]) -> None:
@@ -122,15 +127,14 @@ def build_plan(
             if quick is not None:
                 return quick
         base_tree = gitutil.export_tree(repo, base_sha, Path(tmp) / "base")
-        # Both trees are fingerprinted with the *head* checkout's evals code, so the rules and
-        # normalizers are identical on both sides.
-        evals_root = Path(__file__).resolve().parents[2]
+        # Both trees are fingerprinted with the same (this checkout's) evals code, so the rules
+        # and normalizers are identical on both sides.
         with ThreadPoolExecutor(max_workers=2) as pool:  # two independent subprocesses
             base_future = pool.submit(
-                build_snapshot, base_tree, label="base", evals_root=evals_root, python=python
+                build_snapshot, base_tree, label="base", evals_root=EVALS_ROOT, python=python
             )
             head_future = pool.submit(
-                build_snapshot, head_tree, label="head", evals_root=evals_root, python=python
+                build_snapshot, head_tree, label="head", evals_root=EVALS_ROOT, python=python
             )
             base_snap, head_snap = base_future.result(), head_future.result()
     return make_plan(
@@ -162,12 +166,12 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         print(output.to_text(plan))
     else:
         print(output.to_text(plan))
-    return 0
+    return EXIT_OK
 
 
 def _cmd_probe(args: argparse.Namespace) -> int:
     tree = Path(args.tree).resolve()
-    result = run_probe(tree, Path(__file__).resolve().parents[2])
+    result = run_probe(tree, EVALS_ROOT)
     errors = [] if result.get("ok") else [result.get("error", "probe failed")]
     errors += [f"profile {k}: {v}" for k, v in result.get("profile_errors", {}).items()]
     errors += [f"tool {k}: {v}" for k, v in result.get("tool_errors", {}).items()]
@@ -184,7 +188,7 @@ def _cmd_probe(args: argparse.Namespace) -> int:
             print(f"tool {name}: {n} schema(s), sources={entry.get('source_files')}")
     for err in errors:
         print(f"ERROR: {err}", file=sys.stderr)
-    return 1 if (args.strict and errors) else 0
+    return EXIT_ERRORS if (args.strict and errors) else EXIT_OK
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -232,4 +236,4 @@ def main(argv: list[str] | None = None) -> int:
         return int(args.func(args))
     except (PlanError, gitutil.GitError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
-        return 2
+        return EXIT_CONFIG

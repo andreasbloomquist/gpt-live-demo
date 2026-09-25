@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.types import Message
 
 from call_analyzer.api import create_app
 from call_analyzer.config import ConfigurationError, Settings
@@ -38,10 +39,10 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
         yield test_client
 
 
-def wait_until_analyzed(client: TestClient, call_id: str, timeout: float = 5.0) -> dict:
+def wait_until_analyzed(client: TestClient, call_id: str, timeout: float = 5.0) -> dict[str, Any]:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        body = client.get(f"/v1/calls/{call_id}", headers=AUTH).json()
+        body: dict[str, Any] = client.get(f"/v1/calls/{call_id}", headers=AUTH).json()
         if body["analysis"]["status"] in ("done", "failed"):
             return body
         time.sleep(0.02)
@@ -71,7 +72,7 @@ def test_healthz_needs_no_auth(client: TestClient) -> None:
     ],
 )
 def test_every_v1_route_requires_the_token(
-    client: TestClient, headers: dict, method: str, path: str
+    client: TestClient, headers: dict[str, str], method: str, path: str
 ) -> None:
     response = client.request(method, path, headers=headers, content=b"{}")
     assert response.status_code == 401
@@ -272,16 +273,16 @@ async def test_client_disconnect_mid_body_is_not_a_server_error(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     app = create_app(settings_for(tmp_path))
-    incoming = [
+    incoming: list[Message] = [
         {"type": "http.request", "body": b'{"schema_version": 1', "more_body": True},
         {"type": "http.disconnect"},
     ]
-    sent: list[dict[str, Any]] = []
+    sent: list[Message] = []
 
-    async def receive() -> dict[str, Any]:
+    async def receive() -> Message:
         return incoming.pop(0)
 
-    async def send(message: dict[str, Any]) -> None:
+    async def send(message: Message) -> None:
         sent.append(message)
 
     scope = {

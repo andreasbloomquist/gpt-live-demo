@@ -92,6 +92,7 @@ a.row:focus-visible { border-radius: var(--radius-l); }
 }
 
 .more { display: flex; justify-content: center; margin-top: 28px; }
+.loadError { margin-top: 16px; }
 
 /* ---------------------------------------------------------- score ring */
 .ring {
@@ -154,3 +155,10 @@ a.row:focus-visible { border-radius: var(--radius-l); }
   overflow-x: auto;
   text-align: left;
 }
+
+/* ------------------------------------------- loading skeleton (loading.tsx) */
+/* Rules that set border-radius are qualified with the global .skeleton so they beat its default. */
+:global(.skeleton).skeletonRing { width: 52px; height: 52px; border-radius: 50%; }
+.skeletonTitle { width: 45%; height: 18px; }
+.skeletonSummary { width: 85%; height: 14px; margin-top: 10px; }
+.skeletonMeta { width: 30%; height: 12px; margin-top: 10px; }

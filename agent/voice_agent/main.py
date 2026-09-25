@@ -42,6 +42,7 @@ import datetime as dt
 import logging
 import os
 import sys
+from pathlib import Path
 
 from dotenv import load_dotenv
 from livekit.agents import (
@@ -68,15 +69,22 @@ DEFAULT_AGENT_NAME = "gpt-live-agent"
 # `agent_name=` argument is deprecated in 1.8), so provide the default via the environment.
 # LiveKit checks the env var before `[agent] name` in livekit.toml, so skip the default when a
 # livekit.toml is present (e.g. LiveKit Cloud deploys) to let that file name the agent.
-if not os.path.exists("livekit.toml"):
+if not Path("livekit.toml").exists():
     os.environ.setdefault("LIVEKIT_AGENT_NAME", DEFAULT_AGENT_NAME)
 
 logger = logging.getLogger("voice_agent")
 
 
-def compose_session_prompts(profile: str | None = None) -> PromptBundle:
-    """Compose the prompt bundle for a new session (also handy for debugging)."""
-    settings = get_settings()
+def compose_session_prompts(
+    profile: str | None = None, *, settings: Settings | None = None
+) -> PromptBundle:
+    """Compose the prompt bundle for a new session (also handy for debugging).
+
+    Defaults to ``settings.agent_profile`` and the process settings; runtime variables
+    (today's date, timezone) are computed now, in the agent's timezone.
+    """
+    if settings is None:
+        settings = get_settings()
     return PromptComposer().compose(
         profile or settings.agent_profile,
         extra_variables=runtime_prompt_variables(settings),
@@ -91,9 +99,7 @@ def preflight(settings: Settings) -> None:
     :class:`~voice_agent.tools.UnknownToolError` (profile names an unregistered tool). Builds
     nothing that holds connections; it only runs the same checks the entrypoint does.
     """
-    bundle = PromptComposer().compose(
-        settings.agent_profile, extra_variables=runtime_prompt_variables(settings)
-    )
+    bundle = compose_session_prompts(settings=settings)
     resolve_tools(bundle.tools, settings)
     settings.require_openai_api_key()
     if settings.call_recording_enabled:
@@ -138,29 +144,18 @@ server = ValidatingAgentServer()
 
 @server.rtc_session()
 async def entrypoint(ctx: JobContext) -> None:
+    """Run one session (one room); the steps are listed in the module docstring."""
     started_at = dt.datetime.now(dt.timezone.utc)
     settings = get_settings()
-    logging.getLogger("voice_agent").setLevel(settings.log_level.upper())
+    logger.setLevel(settings.log_level)
 
-    bundle = compose_session_prompts(settings.agent_profile)
+    bundle = compose_session_prompts(settings=settings)
     # Every log line from this job carries the prompt version.
     ctx.log_context_fields = {
         "profile": bundle.profile,
         "prompt_fingerprint": bundle.version,
     }
-    logger.info(
-        "composed prompts",
-        extra={
-            "profile": bundle.profile,
-            "prompt_fingerprint": bundle.fingerprint,
-            "voice_fingerprint": bundle.fingerprint_for("voice")[:12],
-            "backend_fingerprint": bundle.fingerprint_for("backend")[:12],
-            "voice_modules": list(bundle.modules["voice"]),
-            "backend_modules": list(bundle.modules["backend"]),
-            "tools": list(bundle.tools),
-            "today": bundle.variables.get("today"),
-        },
-    )
+    _log_composed_prompts(bundle)
 
     tools = resolve_tools(bundle.tools, settings)
     model = build_gpt_live_model(settings, bundle)
@@ -169,7 +164,7 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
     # A duplex model needs nothing else: no STT/TTS/VAD/turn detector.
-    session: AgentSession = AgentSession(llm=model)
+    session: AgentSession[None] = AgentSession(llm=model)
 
     @session.on("session_usage_updated")
     def _on_usage(ev: SessionUsageUpdatedEvent) -> None:
@@ -214,9 +209,25 @@ async def entrypoint(ctx: JobContext) -> None:
         logger.debug("could not set participant attributes", exc_info=True)
 
 
+def _log_composed_prompts(bundle: PromptBundle) -> None:
+    logger.info(
+        "composed prompts",
+        extra={
+            "profile": bundle.profile,
+            "prompt_fingerprint": bundle.fingerprint,
+            "voice_fingerprint": bundle.fingerprint_for("voice")[:12],
+            "backend_fingerprint": bundle.fingerprint_for("backend")[:12],
+            "voice_modules": list(bundle.modules["voice"]),
+            "backend_modules": list(bundle.modules["backend"]),
+            "tools": list(bundle.tools),
+            "today": bundle.variables.get("today"),
+        },
+    )
+
+
 async def _record_call(
     ctx: JobContext,
-    session: AgentSession,
+    session: AgentSession[None],
     exporter: CallRecordExporter,
     *,
     bundle: PromptBundle,

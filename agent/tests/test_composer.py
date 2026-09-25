@@ -1,9 +1,11 @@
+"""PromptComposer: variables, strictness, fingerprints, and the ``prompts`` CLI."""
+
 from __future__ import annotations
 
 import json
 
 import pytest
-from prompt_helpers import PromptTree, module
+from helpers import PromptTree, module
 
 from voice_agent.prompts import PromptComposer, PromptCompositionError, normalize_prompt_text
 from voice_agent.prompts.__main__ import main as prompts_cli
@@ -119,13 +121,15 @@ def test_requires_tools_must_be_enabled(prompt_tree: PromptTree) -> None:
         PromptComposer(prompt_tree(manifest, _modules())).compose("demo")
 
 
-def test_missing_module_and_unknown_profile(prompt_tree: PromptTree) -> None:
+def test_missing_module_is_an_error(prompt_tree: PromptTree) -> None:
     manifest = MANIFEST.replace("voice: [core/hello]", "voice: [core/nope]")
-    composer = PromptComposer(prompt_tree(manifest, _modules()))
     with pytest.raises(PromptCompositionError, match="not found"):
-        composer.compose("demo")
+        PromptComposer(prompt_tree(manifest, _modules())).compose("demo")
+
+
+def test_unknown_profile_is_an_error(prompt_tree: PromptTree) -> None:
     with pytest.raises(PromptCompositionError, match="unknown profile"):
-        composer.compose("missing")
+        PromptComposer(prompt_tree(MANIFEST, _modules())).compose("missing")
 
 
 def test_module_id_must_match_path(prompt_tree: PromptTree) -> None:

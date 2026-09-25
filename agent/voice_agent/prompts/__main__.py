@@ -16,10 +16,11 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from .composer import DEFAULT_PROMPTS_DIR, PromptComposer, PromptCompositionError
+from .composer import DEFAULT_PROMPTS_DIR, PromptComposer, PromptCompositionError, Target
 
 
 def _parse_vars(pairs: Sequence[str]) -> dict[str, str]:
+    """Turn repeated ``--var NAME=VALUE`` options into a dict (later values win)."""
     out: dict[str, str] = {}
     for pair in pairs:
         key, sep, value = pair.partition("=")
@@ -30,6 +31,7 @@ def _parse_vars(pairs: Sequence[str]) -> dict[str, str]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Run the CLI; returns the process exit status."""
     parser = argparse.ArgumentParser(prog="python -m voice_agent.prompts")
     parser.add_argument(
         "--prompts-dir", type=Path, default=DEFAULT_PROMPTS_DIR, help="prompts directory"
@@ -78,11 +80,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return 0
 
-    sections = [args.target] if args.target else ["voice", "backend"]
+    sections: list[Target] = [args.target] if args.target else ["voice", "backend"]
     print(f"# profile={bundle.profile} fingerprint={bundle.version} tools={','.join(bundle.tools)}")
     for target in sections:
         text = bundle.voice_instructions if target == "voice" else bundle.backend_instructions
-        print(f"\n===== {target} ({bundle.fingerprint_for(target)[:12]}) =====\n")  # type: ignore[arg-type]
+        print(f"\n===== {target} ({bundle.fingerprint_for(target)[:12]}) =====\n")
         print(text)
     if bundle.greeting and args.target in (None, "voice"):
         print(f"\n===== greeting =====\n\n{bundle.greeting}")

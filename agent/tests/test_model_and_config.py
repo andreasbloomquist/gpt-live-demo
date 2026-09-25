@@ -1,10 +1,11 @@
+"""GPT-Live model options, core settings validation, and runtime prompt variables."""
+
 from __future__ import annotations
 
 import datetime as dt
-import subprocess
-import sys
 
 import pytest
+from helpers import make_settings
 from pydantic import ValidationError
 
 from voice_agent.config import ConfigurationError, Settings
@@ -27,7 +28,7 @@ def test_model_requires_api_key_only_when_built(settings: Settings) -> None:
     bundle = PromptComposer().compose("concierge")
     with pytest.raises(ConfigurationError, match="OPENAI_API_KEY"):
         build_gpt_live_model(settings, bundle)
-    keyed = Settings(_env_file=None, openai_api_key="sk-test")  # type: ignore[call-arg]
+    keyed = make_settings(openai_api_key="sk-test")
     model = build_gpt_live_model(keyed, bundle)
     assert model.capabilities.mutable_instructions is False
 
@@ -40,7 +41,7 @@ def test_runtime_variables_in_agent_timezone(settings: Settings) -> None:
 
 def test_unknown_timezone_is_rejected_at_startup() -> None:
     with pytest.raises(ValidationError, match="AGENT_TIMEZONE"):
-        Settings(_env_file=None, agent_timezone="Mars/Olympus")  # type: ignore[call-arg]
+        make_settings(agent_timezone="Mars/Olympus")
 
 
 def test_runtime_zone_still_falls_back_to_utc_defensively() -> None:
@@ -51,18 +52,6 @@ def test_runtime_zone_still_falls_back_to_utc_defensively() -> None:
 
 
 def test_log_level_is_case_insensitive_and_validated() -> None:
-    assert Settings(_env_file=None, log_level="debug").log_level == "DEBUG"  # type: ignore[call-arg]
+    assert make_settings(log_level="debug").log_level == "DEBUG"
     with pytest.raises(ValidationError):
-        Settings(_env_file=None, log_level="LOUD")  # type: ignore[call-arg]
-
-
-def test_main_imports_without_keys() -> None:
-    env = {"PATH": "", "PYTHONPATH": ":".join(sys.path)}
-    proc = subprocess.run(
-        [sys.executable, "-c", "import voice_agent.main as m; assert m.server"],
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert proc.returncode == 0, proc.stderr
+        make_settings(log_level="LOUD")

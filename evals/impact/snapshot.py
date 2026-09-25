@@ -58,9 +58,6 @@ class Snapshot:
     suites: dict[str, SuiteInfo] = field(default_factory=dict)
 
 
-# --------------------------------------------------------------------------------------------
-
-
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
@@ -326,9 +323,9 @@ def _add_eval_components(snap: Snapshot, tree: Path) -> None:
             groups[group].append(path)
     for group, paths in groups.items():
         snap.components[f"runner:{group}"] = Component(digest=_code_digest(tree, paths))
-    for path in sorted((tree / "evals" / "suites").glob("*.yaml")):
-        snap.components[f"suite:{path.stem}"] = Component(
-            digest=norm.digest(norm.normalized_yaml(_read(path)))
+    for suite_file in sorted((tree / "evals" / "suites").glob("*.yaml")):
+        snap.components[f"suite:{suite_file.stem}"] = Component(
+            digest=norm.digest(norm.normalized_yaml(_read(suite_file)))
         )
 
 

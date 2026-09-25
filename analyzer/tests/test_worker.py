@@ -11,7 +11,7 @@ from call_analyzer.models import AssessmentDraft, CallRecord, Metrics
 from call_analyzer.providers.base import ProviderError
 from call_analyzer.providers.heuristic import HeuristicProvider
 from call_analyzer.rubric import Rubric
-from call_analyzer.storage import SQLiteCallRepository
+from call_analyzer.storage import AnalysisState, SQLiteCallRepository
 from call_analyzer.worker import AnalysisWorker, backoff_delay
 from tests.factories import make_record
 
@@ -52,14 +52,16 @@ def worker_for(repo, provider, rubric: Rubric, **kwargs) -> AnalysisWorker:
     return AnalysisWorker(repo, CallAnalyzer(provider, rubric), **options)
 
 
-async def status_of(repo: SQLiteCallRepository, call_id: str):
+async def status_of(repo: SQLiteCallRepository, call_id: str) -> AnalysisState:
     stored = await repo.get_call(call_id)
     assert stored is not None
     return stored.analysis
 
 
-async def wait_for_status(repo, call_id: str, *statuses: str, timeout: float = 5.0):
-    async def poll():
+async def wait_for_status(
+    repo: SQLiteCallRepository, call_id: str, *statuses: str, timeout: float = 5.0
+) -> AnalysisState:
+    async def poll() -> AnalysisState:
         while (state := await status_of(repo, call_id)).status not in statuses:
             await asyncio.sleep(0.01)
         return state

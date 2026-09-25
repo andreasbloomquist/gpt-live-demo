@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import datetime as dt
 from collections.abc import Callable
-from typing import TYPE_CHECKING
 
+from ...config import ConfigurationError, Settings
+from ...runtime import zone
 from .base import (
     InvalidQueryError,
     ProviderUnavailableError,
@@ -18,9 +19,6 @@ from .models import AvailabilityQuery, RestaurantAvailability, TimeSlot
 from .opentable import OpenTableProvider
 from .tool import TOOL_NAME, build_restaurant_availability_tool, check_availability
 
-if TYPE_CHECKING:
-    from ...config import Settings
-
 
 def build_reservation_provider(settings: Settings) -> ReservationProvider:
     """Pick the provider named by ``RESTAURANT_PROVIDER`` (``mock`` or ``opentable``).
@@ -31,8 +29,6 @@ def build_reservation_provider(settings: Settings) -> ReservationProvider:
     loop, so a shared provider would fail later sessions with "bound to a different event loop".
     The default process executor runs one job per process, so a cache would never be hit there.
     """
-    from ...config import ConfigurationError
-
     if settings.restaurant_provider == "mock":
         return MockReservationProvider()
     if settings.restaurant_provider == "opentable":
@@ -54,8 +50,6 @@ def build_reservation_provider(settings: Settings) -> ReservationProvider:
 
 def local_today(timezone: str) -> Callable[[], dt.date]:
     """Clock returning today's date in ``timezone`` (falls back to UTC if unknown)."""
-    from ...runtime import zone
-
     tz = zone(timezone)
     return lambda: dt.datetime.now(tz).date()
 

@@ -7,7 +7,7 @@ import math
 import os
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from evals.runners.assertions import CheckResult
 
@@ -43,6 +43,33 @@ def text_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     prices = _text_prices()
     rate = prices.get(model) or max(prices.values(), key=lambda p: p["output"])
     return (input_tokens * rate["input"] + output_tokens * rate["output"]) / 1_000_000
+
+
+# Static per-trial estimates. The budget reserves them before a trial starts (see ``Budget``)
+# and ``--dry-run`` sums them, so they deliberately round up.
+_BRAIN_INPUT_TOKENS_PER_TURN = 8_000
+"""~2 backend calls per turn, each re-sending a few thousand tokens of instructions."""
+_BRAIN_OUTPUT_TOKENS_PER_TURN = 800
+_JUDGE_CALL_USD = 0.01
+_VOICE_BASE_SECONDS = 20
+"""Session setup and the agent's greeting."""
+_VOICE_SECONDS_PER_TURN = 25
+_VOICE_EXTRAS_USD_PER_TURN = 0.02
+"""TTS for the scripted turn plus backend tokens GPT-Live spends on it."""
+
+
+def estimate_brain_trial_usd(backend_model: str, turns: int) -> float:
+    """Upper-bound cost of one brain-tier trial of ``turns`` user turns, judge included."""
+    tokens = text_cost(
+        backend_model, _BRAIN_INPUT_TOKENS_PER_TURN * turns, _BRAIN_OUTPUT_TOKENS_PER_TURN * turns
+    )
+    return tokens + WEB_SEARCH_CALL_USD * turns + _JUDGE_CALL_USD
+
+
+def estimate_voice_trial_usd(turns: int) -> float:
+    """Upper-bound cost of one voice-tier trial of ``turns`` user turns, judge included."""
+    minutes = (_VOICE_BASE_SECONDS + _VOICE_SECONDS_PER_TURN * turns) / 60
+    return minutes * VOICE_USD_PER_MINUTE + _VOICE_EXTRAS_USD_PER_TURN * turns + _JUDGE_CALL_USD
 
 
 # --------------------------------------------------------------------------------------------
@@ -178,6 +205,9 @@ class CaseResult:
         }
 
 
+SuiteStatus = Literal["completed", "budget_exceeded", "skipped"]
+
+
 @dataclass
 class SuiteResult:
     suite: str
@@ -186,8 +216,7 @@ class SuiteResult:
     started_at: float = field(default_factory=time.time)
     duration_s: float = 0.0
     cases: list[CaseResult] = field(default_factory=list)
-    status: str = "completed"
-    """completed | budget_exceeded | skipped | error"""
+    status: SuiteStatus = "completed"
     status_detail: str = ""
     cost_usd: float = 0.0
     model_info: dict[str, Any] = field(default_factory=dict)

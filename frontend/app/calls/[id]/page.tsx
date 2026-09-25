@@ -5,12 +5,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CallTranscript } from "@/components/call/CallTranscript";
-import { Flags } from "@/components/call/Flags";
-import { MetricsRow } from "@/components/call/MetricsRow";
-import { ReanalyzeButton } from "@/components/call/ReanalyzeButton";
-import { Scorecard } from "@/components/call/Scorecard";
-import { Sparkline } from "@/components/call/Sparkline";
+import { CallTranscript } from "@/components/call-detail/CallTranscript";
+import { Flags } from "@/components/call-detail/Flags";
+import { MetricsRow } from "@/components/call-detail/MetricsRow";
+import { ReanalyzeButton } from "@/components/call-detail/ReanalyzeButton";
+import { Scorecard } from "@/components/call-detail/Scorecard";
+import { Sparkline } from "@/components/call-detail/Sparkline";
 import { AnalysisPoller } from "@/components/calls/AnalysisPoller";
 import { AnalysisStatusPill, HeuristicBadge, isInFlight, OutcomePill } from "@/components/calls/Badges";
 import { ScoreRing } from "@/components/calls/ScoreRing";
@@ -21,7 +21,7 @@ import { AnalyzerError, analyzerErrorMessage, getCall, isValidCallId } from "@/l
 import { formatDuration } from "@/lib/format";
 import { requireUnlocked } from "@/lib/passcode";
 import type { Analysis, CallDetail } from "@/lib/types";
-import styles from "@/components/call/detail.module.css";
+import styles from "@/components/call-detail/detail.module.css";
 
 export const metadata: Metadata = { title: "Call" };
 
@@ -115,7 +115,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
             <section className={styles.section} aria-labelledby="metrics">
               <h2 id="metrics">Metrics</h2>
               <p className={styles.sectionLede}>Computed exactly from the call record, not by a model.</p>
-              <MetricsRow m={done.metrics} />
+              <MetricsRow metrics={done.metrics} />
             </section>
           )}
 

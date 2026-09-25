@@ -11,10 +11,10 @@ from typing import Any
 
 import httpx
 import pytest
+from helpers import make_settings
 from livekit.agents import llm
 
-from voice_agent import recording
-from voice_agent.config import Settings
+from voice_agent import main, recording
 from voice_agent.prompts import PromptBundle, PromptComposer
 from voice_agent.recording import (
     MAX_TURN_CHARS,
@@ -115,7 +115,6 @@ def synthetic_history() -> list[llm.ChatItem]:
 
 
 def make_record(bundle: PromptBundle, items: list[llm.ChatItem] | None = None) -> dict[str, Any]:
-    settings = Settings(_env_file=None)  # type: ignore[call-arg]
     return build_call_record(
         synthetic_history() if items is None else items,
         call_id="room-abc-0123456789ab",
@@ -125,7 +124,7 @@ def make_record(bundle: PromptBundle, items: list[llm.ChatItem] | None = None) -
         ended_at=T0 + dt.timedelta(seconds=42.5),
         end_reason="participant_disconnected",
         bundle=bundle,
-        settings=settings,
+        settings=make_settings(),
         usage=[{"type": "llm_usage", "provider": "openai", "model": "gpt-live-1"}],
     )
 
@@ -242,7 +241,7 @@ def test_ids_and_duration_are_capped_to_the_analyzer_limits(bundle: PromptBundle
         ended_at=T0 + dt.timedelta(days=2),
         end_reason=None,
         bundle=bundle,
-        settings=Settings(_env_file=None),  # type: ignore[call-arg]
+        settings=make_settings(),
     )
     ((turn,), (call,)) = record["turns"], record["tool_calls"]
     assert turn["id"] == call["id"] == "x" * recording.MAX_ID_CHARS
@@ -282,7 +281,7 @@ def test_clock_step_never_yields_negative_duration(bundle: PromptBundle) -> None
         ended_at=T0 - dt.timedelta(seconds=1),
         end_reason=None,
         bundle=bundle,
-        settings=Settings(_env_file=None),  # type: ignore[call-arg]
+        settings=make_settings(),
     )
     assert record["duration_s"] == 0.0
     assert record["ended_at"] == record["started_at"]
@@ -301,7 +300,7 @@ def test_unsafe_call_id_is_rejected(bundle: PromptBundle, call_id: str) -> None:
             ended_at=T0,
             end_reason=None,
             bundle=bundle,
-            settings=Settings(_env_file=None),  # type: ignore[call-arg]
+            settings=make_settings(),
         )
 
 
@@ -316,7 +315,7 @@ def test_naive_datetimes_are_rejected(bundle: PromptBundle) -> None:
             ended_at=dt.datetime(2026, 9, 25, 19, 1),
             end_reason=None,
             bundle=bundle,
-            settings=Settings(_env_file=None),  # type: ignore[call-arg]
+            settings=make_settings(),
         )
 
 
@@ -556,8 +555,6 @@ async def test_export_logs_no_transcript_text(
 
 
 async def test_session_shutdown_writes_record(tmp_path: Path, bundle: PromptBundle) -> None:
-    from voice_agent import main
-
     ctx = SimpleNamespace(
         job=SimpleNamespace(room=SimpleNamespace(name="demo-room"), agent_name="")
     )
@@ -570,7 +567,7 @@ async def test_session_shutdown_writes_record(tmp_path: Path, bundle: PromptBund
         session,  # type: ignore[arg-type]
         exporter(tmp_path, url=None),
         bundle=bundle,
-        settings=Settings(_env_file=None),  # type: ignore[call-arg]
+        settings=make_settings(),
         started_at=T0,
         end_reason="participant_disconnected",
     )
@@ -584,8 +581,6 @@ async def test_session_shutdown_writes_record(tmp_path: Path, bundle: PromptBund
 
 
 async def test_session_without_turns_is_not_recorded(tmp_path: Path, bundle: PromptBundle) -> None:
-    from voice_agent import main
-
     ctx = SimpleNamespace(job=SimpleNamespace(room=SimpleNamespace(name="r"), agent_name="a"))
     session = SimpleNamespace(history=llm.ChatContext(), usage=SimpleNamespace(model_usage=[]))
     await main._record_call(
@@ -593,7 +588,7 @@ async def test_session_without_turns_is_not_recorded(tmp_path: Path, bundle: Pro
         session,  # type: ignore[arg-type]
         exporter(tmp_path, url=None),
         bundle=bundle,
-        settings=Settings(_env_file=None),  # type: ignore[call-arg]
+        settings=make_settings(),
         started_at=T0,
         end_reason=None,
     )

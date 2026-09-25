@@ -19,25 +19,34 @@ deterministic in its tool execution — the voice tier covers the rest.
 
 from __future__ import annotations
 
-import json
 import time
 from typing import Any
 
 from evals.runners import agent_bridge
-from evals.runners.assertions import ToolCall, Transcript
-from evals.runners.common import WEB_SEARCH_CALL_USD, text_cost
+from evals.runners.assertions import ToolCall, Transcript, parse_tool_arguments
+from evals.runners.common import WEB_SEARCH_CALL_USD, estimate_brain_trial_usd, text_cost
 from evals.runners.harness import Conversation
 from evals.schema import Case, Suite, Tier
-from evals.toolschema import tools_to_responses_schemas
+from evals.toolschema import schema_tool_name, tools_to_responses_schemas
 
+DEFAULT_CONCURRENCY = 4
 MAX_STEPS_PER_TURN = 6
 """Tool-loop guard: a model stuck calling tools is a failure, not an infinite bill."""
+TOOL_LOOP_LIMIT_REPLY = "[tool loop limit reached]"
+# Optional ``build_responses_options`` keys forwarded to every backend request when set.
+_FORWARDED_OPTIONS = (
+    "reasoning",
+    "text",
+    "parallel_tool_calls",
+    "max_output_tokens",
+    "tool_choice",
+)
 
 
 class BrainRunner:
     tier: Tier = "brain"
 
-    def __init__(self, *, client: Any, concurrency: int = 4) -> None:
+    def __init__(self, *, client: Any, concurrency: int = DEFAULT_CONCURRENCY) -> None:
         self.client = client
         self.concurrency = concurrency
         self._settings: Any = None
@@ -61,14 +70,12 @@ class BrainRunner:
             "reasoning": self._options.get("reasoning"),
             "text": self._options.get("text"),
             "prompt_fingerprint": getattr(bundle, "fingerprint", None),
-            "tools": [s.get("name") or s.get("type") for s in self._schemas],
+            "tools": [schema_tool_name(s) for s in self._schemas],
         }
 
     def estimate_trial_usd(self, suite: Suite, case: Case) -> float:
-        turns = len(case.user_turns)
         model = str(self._options.get("model") or "")
-        # ~2 model calls per turn with a few thousand tokens of instructions each, plus judge.
-        return text_cost(model, 8_000 * turns, 800 * turns) + WEB_SEARCH_CALL_USD * turns + 0.01
+        return estimate_brain_trial_usd(model, len(case.user_turns))
 
     async def converse(self, suite: Suite, case: Case, trial: int) -> Conversation:
         transcript = Transcript()
@@ -83,16 +90,11 @@ class BrainRunner:
             "instructions": opts.get("instructions"),
             "tools": self._schemas,
         }
-        for key in ("reasoning", "text", "parallel_tool_calls", "max_output_tokens"):
-            if opts.get(key) is not None:
-                request[key] = opts[key]
-        if opts.get("tool_choice") is not None:
-            request["tool_choice"] = opts["tool_choice"]
+        request.update({k: opts[k] for k in _FORWARDED_OPTIONS if opts.get(k) is not None})
 
         for turn in case.user_turns:
             transcript.messages.append(("user", turn))
             pending: list[dict[str, Any]] = [{"role": "user", "content": turn}]
-            loop_limit_hit = False
             for _step in range(MAX_STEPS_PER_TURN):
                 t0 = time.monotonic()
                 # Instructions are re-sent every call: previous_response_id does not carry them.
@@ -110,33 +112,13 @@ class BrainRunner:
                     cost += text_cost(
                         opts["model"], response.usage.input_tokens, response.usage.output_tokens
                     )
-                pending = []
-                for item in response.output:
-                    if item.type == "web_search_call":
-                        action = getattr(item, "action", None)
-                        query = getattr(action, "query", None)
-                        transcript.tool_calls.append(ToolCall("web_search", {"query": query}))
-                        cost += WEB_SEARCH_CALL_USD
-                    elif item.type == "function_call":
-                        output, is_error = await self._execute(
-                            item.name, item.arguments, item.call_id
-                        )
-                        args = _safe_json(item.arguments)
-                        transcript.tool_calls.append(ToolCall(item.name, args, output, is_error))
-                        pending.append(
-                            {
-                                "type": "function_call_output",
-                                "call_id": item.call_id,
-                                "output": output,
-                            }
-                        )
+                pending, tool_cost = await self._handle_tool_calls(response.output, transcript)
+                cost += tool_cost
                 if not pending:
                     transcript.messages.append(("assistant", response.output_text or ""))
                     break
             else:
-                transcript.messages.append(("assistant", "[tool loop limit reached]"))
-                loop_limit_hit = True
-            if loop_limit_hit:
+                transcript.messages.append(("assistant", TOOL_LOOP_LIMIT_REPLY))
                 # The last response still has unanswered function calls, so the API would
                 # reject chaining another user turn onto it: end the conversation here.
                 break
@@ -148,6 +130,30 @@ class BrainRunner:
             first_response_latency_s=first_latency,
             meta={"response_id": previous_id, "incomplete_responses": incomplete},
         )
+
+    async def _handle_tool_calls(
+        self, output_items: list[Any], transcript: Transcript
+    ) -> tuple[list[dict[str, Any]], float]:
+        """Record the response's tool calls and execute its function calls.
+
+        Returns the ``function_call_output`` items for the next request (empty when the model
+        answered without calling a function) and the cost of hosted web searches.
+        """
+        outputs: list[dict[str, Any]] = []
+        cost = 0.0
+        for item in output_items:
+            if item.type == "web_search_call":
+                query = getattr(getattr(item, "action", None), "query", None)
+                transcript.tool_calls.append(ToolCall("web_search", {"query": query}))
+                cost += WEB_SEARCH_CALL_USD
+            elif item.type == "function_call":
+                output, is_error = await self._execute(item.name, item.arguments, item.call_id)
+                args = parse_tool_arguments(item.arguments)
+                transcript.tool_calls.append(ToolCall(item.name, args, output, is_error))
+                outputs.append(
+                    {"type": "function_call_output", "call_id": item.call_id, "output": output}
+                )
+        return outputs, cost
 
     async def _execute(self, name: str, arguments: str, call_id: str = "eval") -> tuple[str, bool]:
         """Run a function tool through LiveKit's own ``execute_function_call``: the same argument
@@ -164,11 +170,3 @@ class BrainRunner:
 
     async def aclose(self) -> None:
         return None
-
-
-def _safe_json(raw: str) -> dict[str, Any]:
-    try:
-        value = json.loads(raw or "{}")
-    except json.JSONDecodeError:
-        return {"__raw__": raw}
-    return value if isinstance(value, dict) else {"__value__": value}

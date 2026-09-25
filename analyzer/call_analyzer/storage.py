@@ -29,7 +29,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol, TypeVar
+from typing import Any, Literal, Protocol, TypeVar
 
 from .models import Analysis, AnalysisStatus, CallRecord
 
@@ -273,7 +273,7 @@ class SQLiteCallRepository:
             where = "WHERE c.started_at < ? OR (c.started_at = ? AND c.call_id < ?)"
             params = [started_at, started_at, call_id]
 
-        def query(conn: sqlite3.Connection) -> list[tuple]:
+        def query(conn: sqlite3.Connection) -> list[tuple[Any, ...]]:
             return conn.execute(
                 f"SELECT c.started_at, c.duration_s, c.turn_count, {_ANALYSIS_COLUMNS} "
                 f"FROM calls c JOIN analyses a USING (call_id) {where} "
@@ -337,7 +337,7 @@ class SQLiteCallRepository:
 
         return await self._write(claim)
 
-    async def _finish(self, job: Job, sql: str, params: tuple) -> bool:
+    async def _finish(self, job: Job, sql: str, params: tuple[Any, ...]) -> bool:
         """Apply a state change only if the job is still the current, running generation."""
 
         def finish(conn: sqlite3.Connection) -> bool:
@@ -403,7 +403,7 @@ _ANALYSIS_COLUMNS = (
 )
 
 
-def _analysis_state(row: tuple) -> AnalysisState:
+def _analysis_state(row: tuple[Any, ...]) -> AnalysisState:
     call_id, status, generation, attempts, requested_at, error, analysis_json = row
     return AnalysisState(
         call_id=call_id,

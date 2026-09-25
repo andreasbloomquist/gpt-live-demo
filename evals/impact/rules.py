@@ -93,19 +93,22 @@ CONFIG_VOICE_ONLY = re.compile(r"^gpt_live_(model|voice)$")
 # covered by unit tests.
 WATCHED_PACKAGE = re.compile(r"^(livekit(-.*)?|openai)$")
 
-# Paths that can never change behaviour: used for the cheap "nothing relevant changed" fast
-# path before any tree is exported or rendered.
+# The cheap "nothing relevant changed" fast path, checked before any tree is exported or
+# rendered: only files under RELEVANT_PREFIXES can change behaviour, minus the exceptions in
+# IRRELEVANT_PREFIXES (``evals/impact`` changes are forced to a full run by the CLI instead).
 RELEVANT_PREFIXES = (f"{AGENT_PKG}/", "prompts/", "evals/", "uv.lock")
 IRRELEVANT_PREFIXES = ("evals/tests/", "evals/impact/", "evals/README.md", "evals/.results/")
 
 
 def is_relevant_path(path: str) -> bool:
+    """Could a change to ``path`` affect any eval result? (``path`` is repo-relative.)"""
     if path.startswith(IRRELEVANT_PREFIXES):
         return False
     return path == "uv.lock" or path.startswith(RELEVANT_PREFIXES)
 
 
 def runner_group(path: str) -> str | None:
+    """``"brain"`` | ``"voice"`` | ``"shared"`` for eval runner code, else ``None``."""
     for group in ("brain", "voice", "shared"):
         for prefix in RUNNER_CODE[group]:
             if path == prefix or (prefix.endswith("/") and path.startswith(prefix)):

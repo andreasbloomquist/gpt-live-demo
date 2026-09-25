@@ -1,10 +1,11 @@
 /** Deterministic metrics (computed by the analyzer in code, not by the LLM). */
 import { formatPercent } from "@/lib/format";
 import type { Metrics } from "@/lib/types";
+import { LOW_CONFIDENCE } from "./CallTranscript";
 import styles from "./detail.module.css";
 
-export function MetricsRow({ m }: { m: Metrics }) {
-  const agentShare = Math.min(1, Math.max(0, m.talk_ratio_agent));
+export function MetricsRow({ metrics }: { metrics: Metrics }) {
+  const agentShare = Math.min(1, Math.max(0, metrics.talk_ratio_agent));
   return (
     <dl className={styles.metrics}>
       <div className={`card ${styles.metric}`}>
@@ -17,30 +18,46 @@ export function MetricsRow({ m }: { m: Metrics }) {
           </span>
         </dd>
       </div>
-      <Metric label="Interruptions" value={m.interruptions} sub="Turns cut off mid-speech" />
+      <Metric label="Interruptions" value={metrics.interruptions} sub="Turns cut off mid-speech" />
       <Metric
         label="Tool calls"
-        value={m.tool_calls}
-        sub={m.tool_errors > 0 ? `${m.tool_errors} failed` : "No errors"}
-        alert={m.tool_errors > 0}
+        value={metrics.tool_calls}
+        sub={metrics.tool_errors > 0 ? `${metrics.tool_errors} failed` : "No errors"}
+        alert={metrics.tool_errors > 0}
       />
       <Metric
         label="Transcript confidence"
-        value={m.mean_transcript_confidence === null ? "–" : formatPercent(m.mean_transcript_confidence)}
+        value={
+          metrics.mean_transcript_confidence === null
+            ? "–"
+            : formatPercent(metrics.mean_transcript_confidence)
+        }
         sub="Mean over caller turns"
       />
       <Metric
         label="Low-confidence turns"
-        value={m.low_confidence_turns}
-        sub="Below 60% STT confidence"
-        alert={m.low_confidence_turns > 0}
+        value={metrics.low_confidence_turns}
+        sub={`Below ${formatPercent(LOW_CONFIDENCE)} STT confidence`}
+        alert={metrics.low_confidence_turns > 0}
       />
-      <Metric label="Words per Ava turn" value={m.avg_agent_words_per_turn.toFixed(0)} sub={`${m.agent_turns} Ava · ${m.user_turns} caller turns`} />
+      <Metric
+        label="Words per Ava turn"
+        value={metrics.avg_agent_words_per_turn.toFixed(0)}
+        sub={`${metrics.agent_turns} Ava · ${metrics.user_turns} caller turns`}
+      />
     </dl>
   );
 }
 
-function Metric({ label, value, sub, alert }: { label: string; value: string | number; sub: string; alert?: boolean }) {
+type MetricProps = {
+  label: string;
+  value: string | number;
+  sub: string;
+  /** Highlights `sub` when the metric points at a problem. */
+  alert?: boolean;
+};
+
+function Metric({ label, value, sub, alert = false }: MetricProps) {
   return (
     <div className={`card ${styles.metric}`}>
       <dt>{label}</dt>

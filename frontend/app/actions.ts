@@ -17,28 +17,30 @@ import {
 import { isUnlocked, safeReturnPath, tryUnlock } from "@/lib/passcode";
 import type { CallPage } from "@/lib/types";
 
-const LOCKED = "Enter the demo passcode first.";
+const LOCKED_MESSAGE = "Enter the demo passcode first.";
+/** Matches the input's maxLength in app/unlock/UnlockForm.tsx. */
+const MAX_PASSCODE_LENGTH = 256;
+const WRONG_PASSCODE_DELAY_MS = 500;
 
 export type ActionResult = { error: string | null };
+export type LoadMoreResult = { page: CallPage; error: null } | { page: null; error: string };
 
 export async function unlock(_prev: ActionResult, form: FormData): Promise<ActionResult> {
   const input = form.get("passcode");
-  if (typeof input !== "string" || input.length === 0 || input.length > 256) {
+  if (typeof input !== "string" || input.length === 0 || input.length > MAX_PASSCODE_LENGTH) {
     return { error: "Enter the passcode." };
   }
   if (!(await tryUnlock(input))) {
     // A fixed delay only slows a sequential guesser: parallel requests are not limited at all.
     // The real brute-force defence is a rate limit at the edge (see frontend/README.md).
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((resolve) => setTimeout(resolve, WRONG_PASSCODE_DELAY_MS));
     return { error: "That passcode isn't right." };
   }
   redirect(safeReturnPath(form.get("next")));
 }
 
-export async function loadMoreCalls(
-  cursor: string,
-): Promise<{ page: CallPage; error: null } | { page: null; error: string }> {
-  if (!(await isUnlocked())) return { page: null, error: LOCKED };
+export async function loadMoreCalls(cursor: string): Promise<LoadMoreResult> {
+  if (!(await isUnlocked())) return { page: null, error: LOCKED_MESSAGE };
   if (!isValidCursor(cursor)) return { page: null, error: "Invalid page cursor." };
   try {
     return { page: await listCalls({ cursor }), error: null };
@@ -48,7 +50,7 @@ export async function loadMoreCalls(
 }
 
 export async function reanalyze(callId: string): Promise<ActionResult> {
-  if (!(await isUnlocked())) return { error: LOCKED };
+  if (!(await isUnlocked())) return { error: LOCKED_MESSAGE };
   if (!isValidCallId(callId)) return { error: "Invalid call id." };
   try {
     await reanalyzeCall(callId);

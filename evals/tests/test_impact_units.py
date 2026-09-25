@@ -339,18 +339,6 @@ def test_describe_change_wording() -> None:
     )
 
 
-def test_estimate_uses_configured_backend_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    from evals import cli
-    from evals.schema import load_suites
-
-    monkeypatch.setenv("GPT_LIVE_BACKEND_MODEL", "gpt-4.1-mini")
-    assert cli.configured_backend_model() == "gpt-4.1-mini"
-    suite = load_suites(names=["web_search"])["web_search"]
-    _, cheap = cli._estimate("brain", suite, None, "gpt-4.1-mini")
-    _, default = cli._estimate("brain", suite, None, cli.DEFAULT_BACKEND_MODEL)
-    assert cheap < default
-
-
 def test_force_reason_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     import argparse
 

@@ -34,12 +34,12 @@ class VoiceAgent(Agent):
         self.bundle = bundle
 
     async def on_enter(self) -> None:
-        # GPT-Live decides turn-taking itself; generate_reply with an instruction is delivered
-        # as one-off commentary asking it to speak first, so the caller isn't met with silence.
-        # Note: session.say() raises on a duplex model (there is no TTS and the model can't
-        # speak fixed text), and interrupt() is a no-op (barge-in is the model's own), so
-        # generate_reply is the way to prompt speech.
+        """Speak first, so the caller isn't met with silence."""
         logger.info(
             "agent entered", extra={"profile": self.bundle.profile, "prompt": self.bundle.version}
         )
+        # GPT-Live decides turn-taking itself; generate_reply with an instruction is delivered
+        # as one-off commentary asking it to speak first. session.say() raises on a duplex
+        # model (there is no TTS and the model can't speak fixed text), and interrupt() is a
+        # no-op (barge-in is the model's own), so generate_reply is the way to prompt speech.
         self.session.generate_reply(instructions=self.bundle.greeting or DEFAULT_GREETING)

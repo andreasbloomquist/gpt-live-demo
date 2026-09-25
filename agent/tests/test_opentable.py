@@ -1,9 +1,11 @@
+"""OpenTable provider against an in-memory fake of the (placeholder) partner API."""
+
 from __future__ import annotations
 
 import asyncio
 import datetime as dt
 import json
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 import httpx
 import pytest
@@ -13,6 +15,7 @@ from voice_agent.tools.restaurants import (
     InvalidQueryError,
     OpenTableProvider,
     ProviderUnavailableError,
+    ReservationError,
     RestaurantNotFoundError,
 )
 
@@ -27,7 +30,10 @@ QUERY = AvailabilityQuery(
     city="San Francisco",
 )
 
-Handler = Callable[[httpx.Request], object]  # sync or async (MockTransport accepts both)
+# MockTransport accepts sync and async handlers.
+Handler = (
+    Callable[[httpx.Request], httpx.Response] | Callable[[httpx.Request], Awaitable[httpx.Response]]
+)
 
 
 class FakeOpenTable:
@@ -165,14 +171,14 @@ async def test_no_matching_restaurant() -> None:
     ],
 )
 async def test_http_errors_map_to_friendly_errors(
-    status: int, error: type[Exception], message: str
+    status: int, error: type[ReservationError], message: str
 ) -> None:
     api = FakeOpenTable()
     api.availability_response = httpx.Response(status, text="upstream says no")
     with pytest.raises(error) as info:
         await _provider(api).search_availability(QUERY)
-    assert message in info.value.user_message  # type: ignore[attr-defined]
-    assert "upstream says no" not in info.value.user_message  # type: ignore[attr-defined]
+    assert message in info.value.user_message
+    assert "upstream says no" not in info.value.user_message
 
 
 async def test_oauth_failure_is_unavailable() -> None:

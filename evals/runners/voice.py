@@ -35,7 +35,6 @@ from __future__ import annotations
 import asyncio
 import difflib
 import hashlib
-import json
 import logging
 import os
 import time
@@ -45,17 +44,26 @@ from typing import Any, Literal
 
 from evals.paths import EVALS_DIR
 from evals.runners import agent_bridge
-from evals.runners.assertions import ToolCall, Transcript
-from evals.runners.common import TTS_USD_PER_1M_CHARS, VOICE_USD_PER_MINUTE, text_cost
+from evals.runners.assertions import ToolCall, Transcript, parse_tool_arguments
+from evals.runners.common import (
+    TTS_USD_PER_1M_CHARS,
+    VOICE_USD_PER_MINUTE,
+    estimate_voice_trial_usd,
+    text_cost,
+)
 from evals.runners.harness import Conversation
 from evals.schema import Case, Suite, Tier
 
 logger = logging.getLogger("evals.voice")
 
+DEFAULT_CONCURRENCY = 2
+"""Real-time audio sessions: keep concurrency (and rate limits) modest."""
+
 SAMPLE_RATE = 24_000  # GPT-Live's native rate; OpenAI TTS "pcm" is 24 kHz s16le mono
+BYTES_PER_SAMPLE = 2  # s16le
 FRAME_MS = 20
 SAMPLES_PER_FRAME = SAMPLE_RATE * FRAME_MS // 1000
-FRAME_BYTES = SAMPLES_PER_FRAME * 2
+FRAME_BYTES = SAMPLES_PER_FRAME * BYTES_PER_SAMPLE
 
 TTS_MODEL = os.environ.get("EVALS_TTS_MODEL", "gpt-4o-mini-tts")
 TTS_VOICE = os.environ.get("EVALS_TTS_VOICE", "alloy")
@@ -66,23 +74,19 @@ SETTLE_S = 2.5
 Long enough to cover "let me check…" → tool call → answer, short enough to keep cases fast."""
 TURN_TIMEOUT_S = 60.0
 LEAD_IN_SILENCE_S = 0.6
+"""Silence played before each scripted turn, like the pause before a caller speaks."""
+SETTLE_POLL_S = 0.2
+MIC_RESYNC_AFTER_S = 1.0
+"""A microphone that fell this far behind real time (event-loop stall) restarts its clock
+instead of bursting the backlog."""
+LATENCY_ONSET_SLACK_S = 0.5
+"""Agent audio that starts this shortly before the caller finished still counts as the reply
+(barge-in / end-of-speech detection racing the last frames)."""
 
 
 # --------------------------------------------------------------------------------------------
 # Audio I/O
 # --------------------------------------------------------------------------------------------
-
-
-def _make_audio_input_base() -> type:
-    from livekit.agents.voice import io
-
-    return io.AudioInput
-
-
-def _make_audio_output_base() -> type:
-    from livekit.agents.voice import io
-
-    return io.AudioOutput
 
 
 class TTSCache:
@@ -132,10 +136,9 @@ class TTSCache:
 def build_microphone() -> Any:
     """A real-time paced ``AudioInput`` that plays scripted PCM, and silence in between."""
     from livekit import rtc
+    from livekit.agents.voice import io
 
-    base = _make_audio_input_base()
-
-    class ScriptedMicrophone(base):  # type: ignore[misc, valid-type]
+    class ScriptedMicrophone(io.AudioInput):
         def __init__(self) -> None:
             super().__init__(label="evals.scripted_microphone")
             self._pending = bytearray()
@@ -146,7 +149,7 @@ def build_microphone() -> Any:
             self.speech_ended_at: float | None = None
 
         def say(self, pcm: bytes) -> None:
-            silence = b"\x00" * (int(SAMPLE_RATE * LEAD_IN_SILENCE_S) * 2)
+            silence = b"\x00" * (int(SAMPLE_RATE * LEAD_IN_SILENCE_S) * BYTES_PER_SAMPLE)
             self._pending.extend(silence + pcm)
             self._drained.clear()
 
@@ -160,7 +163,7 @@ def build_microphone() -> Any:
             if self._closed:
                 raise StopAsyncIteration
             now = time.monotonic()
-            if self._next_at is None or self._next_at < now - 1.0:  # (re)anchor after stalls
+            if self._next_at is None or self._next_at < now - MIC_RESYNC_AFTER_S:
                 self._next_at = now
             if self._next_at > now:
                 await asyncio.sleep(self._next_at - now)
@@ -181,9 +184,7 @@ def build_speaker() -> Any:
     agent's audio starts, for voice-to-voice latency."""
     from livekit.agents.voice import io
 
-    base = _make_audio_output_base()
-
-    class PacedSpeaker(base):  # type: ignore[misc, valid-type]
+    class PacedSpeaker(io.AudioOutput):
         """Plays each segment in real time from its first frame. A segment stays *playing*
         after ``flush()`` until its audio has run out, and ``clear_buffer()`` interrupts it at
         any point before that, exactly like a room or console sink. (LiveKit always calls
@@ -290,7 +291,7 @@ class _Tracker:
     async def wait_settled(self, speaker: Any, *, since_items: int, timeout: float) -> bool:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline and self.closed is None:
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(SETTLE_POLL_S)
             replied = self.assistant_items > since_items
             quiet = time.monotonic() - self.last_activity >= SETTLE_S
             if replied and quiet and not speaker.playing and self.agent_state != "speaking":
@@ -306,26 +307,20 @@ def _raise_if_closed(tracker: _Tracker) -> None:
 
 
 def _transcript_from_history(history: Any, unobservable: frozenset[str]) -> Transcript:
+    """Reduce LiveKit's ``ChatContext`` to the tier-agnostic :class:`Transcript`."""
     transcript = Transcript(unobservable_tools=unobservable)
-    outputs = {}
-    for item in history.items:
-        if item.type == "function_call_output":
-            outputs[item.call_id] = item
+    outputs = {item.call_id: item for item in history.items if item.type == "function_call_output"}
     for item in history.items:
         if item.type == "message" and item.role in ("user", "assistant"):
             text = (item.text_content or "").strip()
             if text:
                 transcript.messages.append((item.role, text))
         elif item.type == "function_call":
-            try:
-                args = json.loads(item.arguments or "{}")
-            except json.JSONDecodeError:
-                args = {"__raw__": item.arguments}
             out = outputs.get(item.call_id)
             transcript.tool_calls.append(
                 ToolCall(
                     item.name,
-                    args if isinstance(args, dict) else {"__value__": args},
+                    parse_tool_arguments(item.arguments),
                     getattr(out, "output", None),
                     bool(getattr(out, "is_error", False)),
                 )
@@ -352,7 +347,7 @@ class VoiceRunner:
         self,
         *,
         client: Any,
-        concurrency: int = 2,
+        concurrency: int = DEFAULT_CONCURRENCY,
         input_mode: Literal["audio", "text"] = "audio",
     ) -> None:
         self.client = client
@@ -381,8 +376,7 @@ class VoiceRunner:
         }
 
     def estimate_trial_usd(self, suite: Suite, case: Case) -> float:
-        minutes = (20 + 25 * len(case.user_turns)) / 60  # greeting + per-turn exchange, padded
-        return minutes * VOICE_USD_PER_MINUTE + 0.02 * len(case.user_turns) + 0.01
+        return estimate_voice_trial_usd(len(case.user_turns))
 
     async def converse(self, suite: Suite, case: Case, trial: int) -> Conversation:
         from livekit.agents import AgentSession
@@ -426,7 +420,7 @@ class VoiceRunner:
                     speaker, since_items=before_items, timeout=TURN_TIMEOUT_S
                 )
                 timeouts += not settled
-                starts = [s for s in speaker.audio_starts if s >= spoke_at - 0.5]
+                starts = [s for s in speaker.audio_starts if s >= spoke_at - LATENCY_ONSET_SLACK_S]
                 if starts:
                     latencies.append(round(max(0.0, starts[0] - spoke_at), 3))
             _raise_if_closed(tracker)

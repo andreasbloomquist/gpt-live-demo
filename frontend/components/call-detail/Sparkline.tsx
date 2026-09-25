@@ -21,6 +21,9 @@ const AXIS: [number, string][] = [
   [-1, "Negative"],
 ];
 
+/** Sentiment within ±NEUTRAL_BAND of zero gets the neutral dot color. */
+const NEUTRAL_BAND = 0.2;
+
 const signed = (v: number) => (v > 0 ? `+${v.toFixed(2)}` : v.toFixed(2));
 
 export function Sparkline({ points }: { points: Analysis["sentiment"] }) {
@@ -71,7 +74,7 @@ export function Sparkline({ points }: { points: Analysis["sentiment"] }) {
               key={`${p.turn_id}-${i}`}
               href={`#${turnAnchor(p.turn_id)}`}
               className={styles.sparkDot}
-              data-tone={p.value > 0.2 ? "pos" : p.value < -0.2 ? "neg" : "neu"}
+              data-tone={p.value > NEUTRAL_BAND ? "pos" : p.value < -NEUTRAL_BAND ? "neg" : "neu"}
               style={{ left: pct(x(i), W), top: pct(y(p.value), H) }}
               aria-label={`Caller turn ${i + 1}: sentiment ${signed(p.value)}`}
               title={`Caller turn ${i + 1}: ${signed(p.value)}`}

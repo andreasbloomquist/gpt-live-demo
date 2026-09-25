@@ -36,12 +36,13 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 import yaml
 
 __all__ = [
     "DEFAULT_PROMPTS_DIR",
+    "ModuleTarget",
     "PromptBundle",
     "PromptComposer",
     "PromptCompositionError",
@@ -51,22 +52,29 @@ __all__ = [
 ]
 
 Target = Literal["voice", "backend"]
+"""Which brain a composed prompt is for."""
+ModuleTarget = Literal["voice", "backend", "any"]
+"""Which brain(s) a module may be listed under; ``any`` modules can be shared by both."""
+
 _TARGETS: tuple[Target, ...] = ("voice", "backend")
-_MODULE_TARGETS = frozenset({"voice", "backend", "any"})
+_MODULE_TARGETS: frozenset[str] = frozenset(get_args(ModuleTarget))
+_SHORT_FINGERPRINT_CHARS = 12
 
 
 def _default_prompts_dir() -> Path:
-    # agent/voice_agent/prompts/composer.py -> repo root is three parents above the package.
     env = os.environ.get("PROMPTS_DIR")
     if env:
         return Path(env).expanduser().resolve()
+    # agent/voice_agent/prompts/composer.py -> parents[3] is the repo root.
     return Path(__file__).resolve().parents[3] / "prompts"
 
 
 DEFAULT_PROMPTS_DIR: Path = _default_prompts_dir()
 """Repo-root ``prompts/`` directory, or ``$PROMPTS_DIR`` when set (resolved at import time)."""
 
-_VAR_RE = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+_VAR_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
+_VAR_NAME_RE = re.compile(_VAR_NAME)
+_VAR_RE = re.compile(r"\{\{\s*(" + _VAR_NAME + r")\s*\}\}")
 _LEFTOVER_BRACES_RE = re.compile(r"\{\{|\}\}")
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 _MANY_NEWLINES_RE = re.compile(r"\n{3,}")
@@ -101,7 +109,7 @@ class PromptModule:
 
     id: str
     version: int
-    target: Literal["voice", "backend", "any"]
+    target: ModuleTarget
     description: str
     body: str
     requires_tools: tuple[str, ...] = ()
@@ -156,7 +164,7 @@ class PromptBundle:
     @property
     def version(self) -> str:
         """Short (12 hex chars) fingerprint, convenient for logs and UI."""
-        return self.fingerprint[:12]
+        return self.fingerprint[:_SHORT_FINGERPRINT_CHARS]
 
     def fingerprint_for(self, target: Target) -> str:
         """Fingerprint of just one brain's instructions (voice includes the greeting)."""
@@ -171,8 +179,8 @@ class PromptBundle:
             "prompt.profile": self.profile,
             "prompt.fingerprint": self.fingerprint,
             "prompt.version": self.version,
-            "prompt.voice": self.fingerprint_for("voice")[:12],
-            "prompt.backend": self.fingerprint_for("backend")[:12],
+            "prompt.voice": self.fingerprint_for("voice")[:_SHORT_FINGERPRINT_CHARS],
+            "prompt.backend": self.fingerprint_for("backend")[:_SHORT_FINGERPRINT_CHARS],
             "prompt.tools": ",".join(self.tools),
         }
 
@@ -193,6 +201,7 @@ class PromptComposer:
         return self._manifest
 
     def list_profiles(self) -> list[str]:
+        """Profile names defined in the manifest, sorted."""
         return sorted(self._manifest["profiles"])
 
     def load_module(self, module_id: str) -> PromptModule:
@@ -246,49 +255,24 @@ class PromptComposer:
         if not rendered["voice"]:
             raise PromptCompositionError(f"profile '{profile}' has no voice modules")
 
-        greeting_tpl = spec.get("greeting")
         greeting = greeting_stable = None
-        if greeting_tpl is not None:
-            greeting_module = PromptModule(
-                id=f"{profile}#greeting",
-                version=1,
-                target="voice",
-                description="profile greeting",
-                body=str(greeting_tpl),
-                variables=tuple(set(_VAR_RE.findall(str(greeting_tpl)))),
-            )
+        greeting_template = spec.get("greeting")
+        if greeting_template is not None:
+            greeting_module = _greeting_module(profile, str(greeting_template))
             greeting = greeting_module.render(actual)
             greeting_stable = greeting_module.render(stable)
 
-        target_fps = {
-            "voice": _sha256(
-                json.dumps([rendered_stable["voice"], greeting_stable], ensure_ascii=False)
-            ),
-            "backend": _sha256(rendered_stable["backend"]),
-        }
-        fingerprint = _sha256(
-            json.dumps(
-                {
-                    "voice": rendered_stable["voice"],
-                    "backend": rendered_stable["backend"],
-                    "tools": sorted(tools),
-                    "greeting": greeting_stable,
-                },
-                sort_keys=True,
-                ensure_ascii=False,
-            )
-        )
         return PromptBundle(
             profile=profile,
             voice_instructions=rendered["voice"],
             backend_instructions=rendered["backend"],
             tools=tools,
             modules=module_ids,
-            fingerprint=fingerprint,
+            fingerprint=_bundle_fingerprint(rendered_stable, greeting_stable, tools),
             greeting=greeting,
             variables=actual,
             runtime_variables=runtime_names,
-            target_fingerprints=target_fps,
+            target_fingerprints=_target_fingerprints(rendered_stable, greeting_stable),
         )
 
     # ---------------------------------------------------------------- internals
@@ -390,6 +374,46 @@ class PromptComposer:
         )
 
 
+def _greeting_module(profile: str, template: str) -> PromptModule:
+    """Wrap a profile's greeting in a module so it renders under the same strict rules."""
+    return PromptModule(
+        id=f"{profile}#greeting",
+        version=1,
+        target="voice",
+        description="profile greeting",
+        body=template,
+        variables=tuple(set(_VAR_RE.findall(template))),
+    )
+
+
+def _target_fingerprints(
+    rendered_stable: Mapping[str, str], greeting: str | None
+) -> dict[str, str]:
+    """Per-brain fingerprints; the greeting is spoken by the voice model, so it counts there."""
+    return {
+        "voice": _sha256(json.dumps([rendered_stable["voice"], greeting], ensure_ascii=False)),
+        "backend": _sha256(rendered_stable["backend"]),
+    }
+
+
+def _bundle_fingerprint(
+    rendered_stable: Mapping[str, str], greeting: str | None, tools: tuple[str, ...]
+) -> str:
+    """Fingerprint of everything that can change behavior: both prompts, greeting, tools."""
+    return _sha256(
+        json.dumps(
+            {
+                "voice": rendered_stable["voice"],
+                "backend": rendered_stable["backend"],
+                "tools": sorted(tools),
+                "greeting": greeting,
+            },
+            sort_keys=True,
+            ensure_ascii=False,
+        )
+    )
+
+
 def _str_tuple(value: object, module_id: str, key: str) -> tuple[str, ...]:
     if value is None:
         return ()
@@ -403,7 +427,7 @@ def _stringify(values: Mapping[str, object], where: str) -> dict[str, str]:
         raise PromptCompositionError(f"{where} must be a mapping")
     out: dict[str, str] = {}
     for key, value in values.items():
-        if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+        if not isinstance(key, str) or not _VAR_NAME_RE.fullmatch(key):
             raise PromptCompositionError(f"{where}: invalid variable name {key!r}")
         if value is None or isinstance(value, (dict, list)):
             raise PromptCompositionError(f"{where}: variable '{key}' must be a scalar")

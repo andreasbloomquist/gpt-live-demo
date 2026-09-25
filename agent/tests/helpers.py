@@ -1,12 +1,22 @@
-"""Helpers for building throwaway prompt trees in tests (imported by test modules)."""
+"""Test helpers shared across test modules (fixtures live in ``conftest.py``)."""
 
 from __future__ import annotations
 
 import textwrap
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
-PromptTree = Callable[..., Path]
+from voice_agent.config import Settings
+
+PromptTree = Callable[[str, dict[str, str]], Path]
+"""The ``prompt_tree`` fixture: ``(manifest_yaml, {module_id: file_text}) -> prompts dir``."""
+
+
+def make_settings(**overrides: Any) -> Settings:
+    """Settings from ``overrides`` and the environment only, ignoring any developer ``.env``."""
+    # pydantic-settings accepts `_env_file` at runtime but doesn't declare it to type checkers.
+    return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]
 
 
 def module(

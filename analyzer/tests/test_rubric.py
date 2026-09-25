@@ -6,7 +6,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from call_analyzer.models import DIMENSIONS, DimensionScore
+from call_analyzer.models import DIMENSIONS, Dimension, DimensionScore
 from call_analyzer.rubric import DEFAULT_RUBRIC_PATH, Rubric
 
 # Pinned content hash per rubric version. If this test fails you changed rubric.yaml: bump its
@@ -15,11 +15,9 @@ PINNED_VERSION = "1"
 PINNED_SHA256 = "f42f0e7fa2b5b15d8fbfe1f34abc827f08de4cec597239f74ab1e9727e14bc9e"
 
 
-def _scores(value: int, **overrides: int) -> dict:
-    scores = {d: DimensionScore(score=value, rationale="r") for d in DIMENSIONS}
-    for dim, score in overrides.items():
-        scores[dim] = DimensionScore(score=score, rationale="r")
-    return scores
+def _scores(value: int, **overrides: int) -> dict[Dimension, DimensionScore]:
+    """Every dimension at ``value``, except those named in ``overrides``."""
+    return {d: DimensionScore(score=overrides.get(d, value), rationale="r") for d in DIMENSIONS}
 
 
 def test_rubric_content_changes_require_a_version_bump(rubric: Rubric) -> None:

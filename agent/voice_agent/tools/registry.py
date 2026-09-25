@@ -38,6 +38,13 @@ class UnknownToolError(KeyError):
 
 @dataclass(frozen=True)
 class ToolSpec:
+    """A registered tool.
+
+    ``name`` is what profiles list under ``tools``; ``factory`` builds the session's tool
+    objects from settings; ``source_modules`` are the Python modules implementing the tool,
+    used by the eval change-detector to map code changes to the tools they affect.
+    """
+
     name: str
     description: str
     factory: ToolFactory

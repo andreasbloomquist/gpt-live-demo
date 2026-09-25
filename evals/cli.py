@@ -19,14 +19,19 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from evals.paths import RESULTS_DIR, SUITE_SCHEMA_PATH, SUITES_DIR
 from evals.schema import Suite, SuiteLoadError, Tier, load_suites, suite_json_schema
 
+if TYPE_CHECKING:
+    from evals.runners.harness import TierRunner
+
 EXIT_OK, EXIT_FAILED, EXIT_CONFIG, EXIT_BUDGET = 0, 1, 2, 3
 OPENAI_TIMEOUT_S = 60.0
 OPENAI_MAX_RETRIES = 3
+DEFAULT_BACKEND_MODEL = "gpt-5.6-luna"
+"""GPT-Live's default backend model: what dry-run prices when the agent cannot be imported."""
 
 
 def _suite_names(values: list[str] | None) -> list[str] | None:
@@ -67,9 +72,6 @@ def cross_check(suites: dict[str, Suite]) -> list[str]:
     return errors
 
 
-DEFAULT_BACKEND_MODEL = "gpt-5.6-luna"
-
-
 def configured_backend_model() -> str:
     """The backend model the agent is configured with (``GPT_LIVE_BACKEND_MODEL`` / Settings
     default), so dry-run estimates price the model that would actually run. Falls back to the
@@ -85,24 +87,24 @@ def configured_backend_model() -> str:
 def _estimate(
     tier: Tier, suite: Suite, trials: int | None, backend_model: str = DEFAULT_BACKEND_MODEL
 ) -> tuple[int, float]:
-    """(trial count, rough USD) without constructing runners or touching the network."""
-    from evals.runners.common import VOICE_USD_PER_MINUTE, WEB_SEARCH_CALL_USD, text_cost
+    """(trial count, rough USD) without constructing runners or touching the network. Uses the
+    same per-trial estimates the runners reserve against the budget."""
+    from evals.runners.common import estimate_brain_trial_usd, estimate_voice_trial_usd
 
     total_trials, usd = 0, 0.0
     for case in suite.cases_for(tier):
         n = trials or suite.trials_for(case)
         turns = len(case.user_turns)
         if tier == "brain":
-            per = text_cost(backend_model, 8_000 * turns, 800 * turns)
-            per += WEB_SEARCH_CALL_USD * turns + 0.01
+            per_trial = estimate_brain_trial_usd(backend_model, turns)
         else:
-            per = (20 + 25 * turns) / 60 * VOICE_USD_PER_MINUTE + 0.02 * turns + 0.01
+            per_trial = estimate_voice_trial_usd(turns)
         total_trials += n
-        usd += per * n
+        usd += per_trial * n
     return total_trials, usd
 
 
-def dry_run(tier: Tier, suites: dict[str, Suite], args: argparse.Namespace) -> int:
+def _dry_run(tier: Tier, suites: dict[str, Suite], args: argparse.Namespace) -> int:
     errors = [] if args.no_agent_check else cross_check(suites)
     backend_model = configured_backend_model()
     print(f"DRY RUN — tier={tier} (no network calls, no API key needed)")
@@ -147,11 +149,31 @@ def _skipped_results(tier: Tier, suites: dict[str, Suite], reason: str, results_
     from evals.runners.common import SuiteResult
 
     for suite in suites.values():
-        result = SuiteResult(suite=suite.name, tier=tier, profile=suite.profile)
-        result.status, result.status_detail = "skipped", reason
+        result = SuiteResult(
+            suite=suite.name,
+            tier=tier,
+            profile=suite.profile,
+            status="skipped",
+            status_detail=reason,
+        )
         write_results(result, results_dir)
     print(f"skipped: {reason}")
     return EXIT_OK
+
+
+def _make_runner(tier: Tier, client: Any, args: argparse.Namespace) -> TierRunner:
+    if tier == "brain":
+        from evals.runners.brain import DEFAULT_CONCURRENCY, BrainRunner
+
+        return BrainRunner(client=client, concurrency=args.concurrency or DEFAULT_CONCURRENCY)
+    from evals.runners.voice import DEFAULT_CONCURRENCY as VOICE_CONCURRENCY
+    from evals.runners.voice import VoiceRunner
+
+    return VoiceRunner(
+        client=client,
+        concurrency=args.concurrency or VOICE_CONCURRENCY,
+        input_mode=args.voice_input,
+    )
 
 
 async def _run(tier: Tier, suites: dict[str, Suite], args: argparse.Namespace) -> int:
@@ -160,7 +182,7 @@ async def _run(tier: Tier, suites: dict[str, Suite], args: argparse.Namespace) -
     from evals.report import results_markdown, write_results
     from evals.runners import agent_bridge
     from evals.runners.common import Budget
-    from evals.runners.harness import HarnessOptions, TierRunner, run_suite
+    from evals.runners.harness import HarnessOptions, run_suite
 
     settings = agent_bridge.load_settings()
     # Serves the backend, TTS and judge calls. The SDK default (600 s per attempt) would let one
@@ -183,19 +205,13 @@ async def _run(tier: Tier, suites: dict[str, Suite], args: argparse.Namespace) -
         for suite in suites.values():
             if tier not in suite.tiers or not suite.cases_for(tier):
                 continue
-            runner: TierRunner
-            if tier == "brain":
-                from evals.runners.brain import BrainRunner
-
-                runner = BrainRunner(client=client, concurrency=args.concurrency or 4)
-            else:
-                from evals.runners.voice import VoiceRunner
-
-                runner = VoiceRunner(
-                    client=client, concurrency=args.concurrency or 2, input_mode=args.voice_input
-                )
             result = await run_suite(
-                runner, suite, judge_client=client, budget=budget, today=today, options=options
+                _make_runner(tier, client, args),
+                suite,
+                judge_client=client,
+                budget=budget,
+                today=today,
+                options=options,
             )
             result.fingerprint = fingerprints.get(suite.name)
             paths = write_results(result, args.results_dir)
@@ -221,7 +237,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return EXIT_CONFIG
     if args.dry_run:
-        return dry_run(tier, suites, args)
+        return _dry_run(tier, suites, args)
     if not os.environ.get("OPENAI_API_KEY"):
         if args.skip_if_no_key:
             return _skipped_results(tier, suites, "OPENAI_API_KEY not available", args.results_dir)

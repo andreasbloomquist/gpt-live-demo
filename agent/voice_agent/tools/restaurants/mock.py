@@ -12,14 +12,17 @@ import hashlib
 import random
 
 from .base import InvalidQueryError
-from .models import AvailabilityQuery, RestaurantAvailability, TimeSlot
+from .models import AvailabilityQuery, RestaurantAvailability, TimeSlot, hhmm_to_minutes
 
 # Dinner service, in 15-minute steps; last seating 21:45.
 _SERVICE_START = dt.time(17, 0)
 _SERVICE_END = dt.time(21, 45)
 _STEP_MINUTES = 15
-_WINDOW_MINUTES = 90
-_LARGE_PARTY = 9
+_WINDOW_MINUTES = 90  # slots offered on either side of the requested time
+_CLOSED_PROBABILITY = 1 / 7
+_SLOT_OPEN_PROBABILITY = 0.5
+_MEDIUM_PARTY = 5  # from here up, only every other open slot is offered
+_LARGE_PARTY = 9  # from here up, never bookable online
 _AREAS = ("dining room", "bar", "patio")
 
 
@@ -65,7 +68,7 @@ class MockReservationProvider:
             provider=self.name,
         )
 
-        if rng.random() < 1 / 7:
+        if rng.random() < _CLOSED_PROBABILITY:
             return base.model_copy(
                 update={"status": "closed", "note": "The restaurant is closed on this date."}
             )
@@ -82,20 +85,20 @@ class MockReservationProvider:
         open_slots: list[TimeSlot] = []
         minute = _to_minutes(_SERVICE_START)
         while minute <= _to_minutes(_SERVICE_END):
-            is_open = rng.random() < 0.5
+            is_open = rng.random() < _SLOT_OPEN_PROBABILITY
             area = rng.choice(_AREAS)
             if is_open:
-                open_slots.append(TimeSlot(time=_fmt(minute), area=area))
+                open_slots.append(TimeSlot(time=_format_hhmm(minute), area=area))
             minute += _STEP_MINUTES
 
         # Big parties get fewer options: drop every other slot for 5-8 people.
-        if query.party_size >= 5:
+        if query.party_size >= _MEDIUM_PARTY:
             open_slots = open_slots[::2]
 
         target = _to_minutes(query.time)
         clamped = min(max(target, _to_minutes(_SERVICE_START)), _to_minutes(_SERVICE_END))
         nearby = [
-            s for s in open_slots if abs(_hhmm_to_minutes(s.time) - clamped) <= _WINDOW_MINUTES
+            s for s in open_slots if abs(hhmm_to_minutes(s.time) - clamped) <= _WINDOW_MINUTES
         ]
 
         if any(s.time == requested for s in nearby):
@@ -114,10 +117,5 @@ def _to_minutes(value: dt.time) -> int:
     return value.hour * 60 + value.minute
 
 
-def _fmt(minutes: int) -> str:
+def _format_hhmm(minutes: int) -> str:
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
-
-
-def _hhmm_to_minutes(value: str) -> int:
-    hours, minutes = value.split(":")
-    return int(hours) * 60 + int(minutes)

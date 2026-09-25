@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 class GitError(RuntimeError):
-    pass
+    """A git command failed; the message carries git's stderr."""
 
 
 def git(repo: Path, *args: str) -> str:
@@ -39,32 +39,39 @@ def merge_base(repo: Path, a: str, b: str) -> str:
 def export_tree(repo: Path, ref: str, dest: Path) -> Path:
     """Materialise ``ref`` into ``dest`` (tracked files only, no ``.git``)."""
     dest.mkdir(parents=True, exist_ok=True)
-    proc = subprocess.Popen(
+    with subprocess.Popen(
         ["git", "archive", "--format=tar", ref],
         cwd=repo,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-    )
-    assert proc.stdout is not None and proc.stderr is not None
-    try:
-        with tarfile.open(fileobj=proc.stdout, mode="r|") as tar:
-            if hasattr(tarfile, "data_filter"):
-                tar.extractall(dest, filter="data")
-            else:
-                # Python < 3.11.4 has no extraction filters. The tree is PR-controlled, but
-                # GitHub fscks pushed trees (no "..", ".git" or absolute entries), and a tree
-                # cannot hold both a symlink ``x`` and a file ``x/y`` to write through it.
-                tar.extractall(dest)
-    except tarfile.TarError as exc:
-        proc.kill()
-        raise GitError(f"git archive {ref} failed: {proc.stderr.read().decode().strip()}") from exc
-    finally:
-        proc.stdout.close()
-        returncode = proc.wait()
-    if returncode != 0:
-        raise GitError(f"git archive {ref} failed: {proc.stderr.read().decode().strip()}")
-    proc.stderr.close()
+    ) as proc:
+        assert proc.stdout is not None and proc.stderr is not None  # both are PIPEs
+        try:
+            with tarfile.open(fileobj=proc.stdout, mode="r|") as tar:
+                _extract_all(tar, dest)
+        except tarfile.TarError as exc:
+            proc.kill()
+            raise GitError(f"git archive {ref} failed: {_stderr(proc)}") from exc
+        finally:
+            proc.stdout.close()
+        if proc.wait() != 0:
+            raise GitError(f"git archive {ref} failed: {_stderr(proc)}")
     return dest
+
+
+def _extract_all(tar: tarfile.TarFile, dest: Path) -> None:
+    if hasattr(tarfile, "data_filter"):
+        tar.extractall(dest, filter="data")
+    else:
+        # Python < 3.11.4 has no extraction filters. The tree is PR-controlled, but GitHub
+        # fscks pushed trees (no "..", ".git" or absolute entries), and a tree cannot hold both
+        # a symlink ``x`` and a file ``x/y`` to write through it.
+        tar.extractall(dest)
+
+
+def _stderr(proc: subprocess.Popen[bytes]) -> str:
+    assert proc.stderr is not None
+    return proc.stderr.read().decode().strip()
 
 
 def changed_files(repo: Path, base: str, head: str | None) -> list[str]:

@@ -19,7 +19,7 @@ import datetime as dt
 import hashlib
 import logging
 import secrets
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
@@ -101,7 +101,7 @@ def error_response(
     message: str,
     *,
     details: list[dict[str, Any]] | None = None,
-    headers: dict[str, str] | None = None,
+    headers: Mapping[str, str] | None = None,
 ) -> JSONResponse:
     body: dict[str, Any] = {"code": _ERROR_CODES.get(status, "error"), "message": message}
     if details:

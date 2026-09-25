@@ -23,13 +23,14 @@ import datetime as dt
 import json
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 from livekit.agents import FunctionTool, ToolError, function_tool
 from pydantic import ValidationError
 
 from .base import ReservationError, ReservationProvider
-from .models import AvailabilityQuery
+from .models import MAX_PARTY_SIZE, AvailabilityQuery
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ MAX_DAYS_AHEAD = 180
 _TIME_RE = re.compile(r"^\s*(\d{1,2}):(\d{2})\s*$")
 
 Clock = Callable[[], dt.date]
+AvailabilityTool = FunctionTool[..., Coroutine[Any, Any, str]]
 
 
 def _parse_date(value: str, today: dt.date) -> dt.date:
@@ -87,10 +89,10 @@ async def check_availability(
         raise ToolError("Ask the caller which restaurant they'd like.")
     if party_size < 1:
         raise ToolError("Party size must be at least 1. Ask how many people are coming.")
-    if party_size > 20:
+    if party_size > MAX_PARTY_SIZE:
         raise ToolError(
-            "Parties larger than 20 can't be checked online. Suggest contacting the "
-            "restaurant's events team."
+            f"Parties larger than {MAX_PARTY_SIZE} can't be checked online. Suggest contacting "
+            "the restaurant's events team."
         )
     try:
         query = AvailabilityQuery(
@@ -125,7 +127,7 @@ async def check_availability(
 
 def build_restaurant_availability_tool(
     provider: ReservationProvider, *, clock: Clock | None = None
-) -> FunctionTool:
+) -> AvailabilityTool:
     """Create the ``check_restaurant_availability`` tool bound to ``provider``.
 
     ``clock`` returns "today" in the agent's timezone; it's injectable so tests and evals are
