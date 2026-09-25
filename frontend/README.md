@@ -22,7 +22,7 @@ npm run dev                  # http://localhost:3000
 
 Start the agent too (see the root README), e.g. `uv run voice-agent dev`. Then open the page, click **Start conversation**, and allow microphone access.
 
-Use the same LiveKit project for the agent and this app. By default LiveKit dispatches the agent to every new room automatically. If the worker registers with an explicit `agent_name`, set `LIVEKIT_AGENT_NAME` to that name. The token then includes a `RoomConfiguration` agent dispatch for it.
+Use the same LiveKit project for the agent and this app. The worker in `agent/` registers as `gpt-live-agent` (explicit dispatch), and `.env.example` already sets `LIVEKIT_AGENT_NAME=gpt-live-agent`, so the token includes a `RoomConfiguration` agent dispatch for it. If you run the worker with automatic dispatch (empty `LIVEKIT_AGENT_NAME` on the agent side), clear it here too.
 
 Other scripts: `npm run lint`, `npm run typecheck`, `npm run build && npm start`.
 

@@ -3,7 +3,7 @@
 Run it with the built-in CLI subcommands::
 
     uv run voice-agent console   # talk to the agent from your terminal (no room needed)
-    uv run voice-agent dev       # connect to LiveKit with hot reload
+    uv run voice-agent dev       # connect to LiveKit (no hot reload; use `lk agent dev` for that)
     uv run voice-agent start     # production worker
 
 LiveKit Agents 1.8 marks that built-in Python CLI as deprecated in favour of the LiveKit CLI
@@ -54,7 +54,10 @@ load_dotenv()
 DEFAULT_AGENT_NAME = "gpt-live-agent"
 # LiveKit reads LIVEKIT_AGENT_NAME when the session is registered below (the in-code
 # `agent_name=` argument is deprecated in 1.8), so provide the default via the environment.
-os.environ.setdefault("LIVEKIT_AGENT_NAME", DEFAULT_AGENT_NAME)
+# LiveKit checks the env var before `[agent] name` in livekit.toml, so skip the default when a
+# livekit.toml is present (e.g. LiveKit Cloud deploys) to let that file name the agent.
+if not os.path.exists("livekit.toml"):
+    os.environ.setdefault("LIVEKIT_AGENT_NAME", DEFAULT_AGENT_NAME)
 
 logger = logging.getLogger("voice_agent")
 

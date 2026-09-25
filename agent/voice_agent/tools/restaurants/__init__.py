@@ -22,6 +22,9 @@ if TYPE_CHECKING:
     from ...config import Settings
 
 
+_OPENTABLE_PROVIDERS: dict[tuple[str, str, str, str, float], OpenTableProvider] = {}
+
+
 def build_reservation_provider(settings: Settings) -> ReservationProvider:
     """Pick the provider named by ``RESTAURANT_PROVIDER`` (``mock`` or ``opentable``)."""
     from ...config import ConfigurationError
@@ -35,13 +38,24 @@ def build_reservation_provider(settings: Settings) -> ReservationProvider:
                 "RESTAURANT_PROVIDER=opentable needs OPENTABLE_CLIENT_ID and "
                 "OPENTABLE_CLIENT_SECRET (OpenTable partner credentials)."
             )
-        return OpenTableProvider(
-            client_id=settings.opentable_client_id,
-            client_secret=secret.get_secret_value(),
-            base_url=settings.opentable_api_base_url,
-            oauth_url=settings.opentable_oauth_url,
-            timeout_s=settings.opentable_timeout_seconds,
+        # One provider per credential set per process, so the OAuth token cache survives
+        # across sessions instead of paying a token round-trip on every call's first lookup.
+        key = (
+            settings.opentable_client_id,
+            secret.get_secret_value(),
+            settings.opentable_api_base_url,
+            settings.opentable_oauth_url,
+            settings.opentable_timeout_seconds,
         )
+        if key not in _OPENTABLE_PROVIDERS:
+            _OPENTABLE_PROVIDERS[key] = OpenTableProvider(
+                client_id=key[0],
+                client_secret=key[1],
+                base_url=key[2],
+                oauth_url=key[3],
+                timeout_s=key[4],
+            )
+        return _OPENTABLE_PROVIDERS[key]
     raise ConfigurationError(f"unknown RESTAURANT_PROVIDER {settings.restaurant_provider!r}")
 
 

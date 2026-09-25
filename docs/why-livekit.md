@@ -126,7 +126,7 @@ cancellation and agent hosting). Moving between them is a URL and credentials ch
 | Metrics and tracing | `metrics_collected` events (including GPT-Live usage), OpenTelemetry traces and metrics under `livekit.agents.telemetry`. |
 | Recording | `session.start(..., record=...)` session recording and transcripts. |
 | Noise cancellation | `RoomOptions` audio input accepts a noise-cancellation option (the enhanced models are a LiveKit Cloud feature). |
-| Dev loop | `console` (talk to the agent in your terminal), `dev` (hot reload), `start` (production). In 1.8 these are moving to the LiveKit CLI (`lk agent ...`); `cli.run_app` still routes them with a deprecation warning. |
+| Dev loop | `console` (talk to the agent in your terminal), `dev` (hot reload via `lk agent dev`), `start` (production). In 1.8 these are moving to the LiveKit CLI (`lk agent ...`); `cli.run_app` still routes them with a deprecation warning. |
 
 ---
 
