@@ -20,6 +20,8 @@ code.backend_runtime   model.py AST                   brain + voice of every sui
                                                       (``build_responses_options`` there is
                                                       the brain tier's backend config)
 code.voice_runtime     agent.py / main.py AST         voice tier of every suite
+code.post_call         recording.py AST               nothing (runs after the call ends; no eval
+                                                      exercises it, unit tests cover it)
 config.voice:<field>   voice-only settings default    voice tier of every suite
 config.shared:<field>  other behavioural defaults     brain + voice of every suite
 config.logic           rest of config.py AST          brain + voice of every suite
@@ -58,6 +60,9 @@ VOICE_RUNTIME_CODE = (
     f"{AGENT_PKG}/agent.py",
     f"{AGENT_PKG}/main.py",
 )
+# Post-call code: builds and exports the call record once the session has closed. It can't
+# change what the caller hears, so no paid tier re-runs for it (its unit tests still do).
+POST_CALL_CODE = (f"{AGENT_PKG}/recording.py",)
 CONFIG_FILE = f"{AGENT_PKG}/config.py"
 
 # Eval runner code, grouped by the tier whose *results* it can change. ``evals/impact`` and
@@ -74,11 +79,13 @@ RUNNER_CODE: dict[str, tuple[str, ...]] = {
     ),
 }
 
-# Settings that never change agent behaviour in evals (credentials, endpoints, logging, and
-# the OpenTable provider, which evals replace with the deterministic mock).
+# Settings that never change agent behaviour in evals (credentials, endpoints, logging, the
+# OpenTable provider, which evals replace with the deterministic mock, and post-call recording).
 # Credential patterns are anchored to whole name segments: an unanchored ``token`` would also
 # swallow behavioural settings such as ``gpt_live_backend_max_output_tokens``.
-CONFIG_IGNORED = re.compile(r"(^|_)(api_key|secret|token)$|_url$|^log_level$|^livekit_|^opentable_")
+CONFIG_IGNORED = re.compile(
+    r"(^|_)(api_key|secret|token)$|_url$|^log_level$|^livekit_|^opentable_|^call_"
+)
 # Settings consumed only by the GPT-Live voice model.
 CONFIG_VOICE_ONLY = re.compile(r"^gpt_live_(model|voice)$")
 
@@ -139,6 +146,8 @@ def affects(key: str, suite: SuiteTarget, tier: Tier) -> bool:
         return arg in suite.tools and tier == "brain"
     if kind in ("code.voice_runtime", "config.voice"):
         return tier == "voice"
+    if kind == "code.post_call":
+        return False
     if kind == "suite":
         return arg == suite.name
     if kind == "runner":

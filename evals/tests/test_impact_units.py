@@ -176,6 +176,14 @@ def test_relevant_paths(path: str, relevant: bool) -> None:
     assert is_relevant_path(path) is relevant
 
 
+def test_post_call_code_and_settings_run_nothing() -> None:
+    s = SuiteTarget("restaurants", "concierge", ("check",), ("check", "web_search"))
+    assert not affects("code.post_call", s, "brain")
+    assert not affects("code.post_call", s, "voice")
+    assert config_kind("call_recording_enabled") is None
+    assert config_kind("call_records_dir") is None
+
+
 def test_affects_routing_table() -> None:
     s = SuiteTarget("restaurants", "concierge", ("check",), ("check", "web_search"))
     assert affects("prompt.voice:concierge", s, "voice")

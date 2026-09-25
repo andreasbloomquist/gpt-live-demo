@@ -266,6 +266,7 @@ def _add_agent_code_components(snap: Snapshot, tree: Path, claimed: set[str]) ->
     core: list[str] = []
     backend_runtime: list[str] = []
     voice_runtime: list[str] = []
+    post_call: list[str] = []
     # Fixed roles win over a tool's ``source_modules`` claim: a tool listing e.g.
     # ``voice_agent.config`` must not demote settings changes to "that tool's brain tier".
     for path in _source_files(tree, rules.AGENT_PKG):
@@ -275,6 +276,8 @@ def _add_agent_code_components(snap: Snapshot, tree: Path, claimed: set[str]) ->
             backend_runtime.append(path)
         elif path in rules.VOICE_RUNTIME_CODE:
             voice_runtime.append(path)
+        elif path in rules.POST_CALL_CODE:
+            post_call.append(path)
         elif path == rules.CONFIG_FILE:
             _add_config_components(snap, _read(tree / path))
         elif path in claimed:
@@ -286,6 +289,7 @@ def _add_agent_code_components(snap: Snapshot, tree: Path, claimed: set[str]) ->
     snap.components["code.core"] = Component(digest=_code_digest(tree, core))
     snap.components["code.backend_runtime"] = Component(digest=_code_digest(tree, backend_runtime))
     snap.components["code.voice_runtime"] = Component(digest=_code_digest(tree, voice_runtime))
+    snap.components["code.post_call"] = Component(digest=_code_digest(tree, post_call))
 
 
 def _add_config_components(snap: Snapshot, source: str) -> None:
