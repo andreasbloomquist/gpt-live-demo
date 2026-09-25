@@ -47,8 +47,10 @@ a.row:focus-visible { border-radius: var(--radius-l); }
   line-height: 1.3;
   letter-spacing: -0.02em;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* Two lines, so the booking date in "Table for 3 at Kokkari (Thu Sep 24…)" survives on phones. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .summary {
@@ -65,12 +67,13 @@ a.row:focus-visible { border-radius: var(--radius-l); }
 .meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px 6px;
   margin-top: 8px;
   font-size: 0.8125rem;
   color: var(--text-2);
   letter-spacing: -0.005em;
 }
+.meta > span { white-space: nowrap; }
 
 .rowSide {
   display: flex;

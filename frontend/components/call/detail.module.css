@@ -394,8 +394,19 @@
   transition: transform var(--dur) var(--ease);
 }
 .tool[open] summary::after { transform: rotate(45deg); }
-.tool summary svg { width: 15px; height: 15px; }
-.tool summary code { color: var(--text); font-weight: 600; font-size: 0.8125rem; }
+.tool summary svg { width: 15px; height: 15px; flex-shrink: 0; }
+.tool summary::after { flex-shrink: 0; }
+/* Long tool names truncate instead of pushing the status and chevron out of the chip. */
+.tool summary code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.8125rem;
+}
+.toolStatus, .tool summary .mono { flex-shrink: 0; }
 .toolStatus {
   margin-left: auto;
   padding: 1px 8px;

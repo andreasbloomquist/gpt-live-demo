@@ -20,12 +20,21 @@ export function CallCard({ call }: { call: CallSummary }) {
             <h2>{title}</h2>
           </div>
           {call.summary && <p className={styles.summary}>{call.summary}</p>}
+          {/* Each separator travels with the item after it, so a wrapped row never ends in "·". */}
           <p className={styles.meta}>
-            {call.started_at && <LocalTime iso={call.started_at} />}
-            <span aria-hidden="true">·</span>
-            <span>{formatDuration(call.duration_s)}</span>
-            <span aria-hidden="true">·</span>
-            <span>{call.turns} turns</span>
+            {call.started_at && (
+              <span>
+                <LocalTime iso={call.started_at} />
+              </span>
+            )}
+            <span>
+              {call.started_at && <span aria-hidden="true">· </span>}
+              {formatDuration(call.duration_s)}
+            </span>
+            <span>
+              <span aria-hidden="true">· </span>
+              {call.turns} turns
+            </span>
           </p>
         </div>
         <div className={styles.rowSide}>
