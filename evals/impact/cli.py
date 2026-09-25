@@ -15,6 +15,7 @@ Examples::
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import sys
@@ -31,6 +32,12 @@ from evals.schema import TIERS
 FULL_LABEL = "evals:full"
 SKIP_LABEL = "evals:skip"
 _TRUTHY = {"1", "true", "yes", "on"}
+
+# CI runs the *base* commit's planner (see the `plan` job in .github/workflows/evals.yml), so a
+# PR cannot rewrite the rules that judge it. A PR that changes the planner or that bootstrap is
+# judged by nobody trustworthy, so it gets everything. This check lives in the base's copy too.
+PLANNER_PATHS = ("evals/impact/", ".github/workflows/evals.yml")
+PLANNER_CHANGED = "planner code changed: running everything"
 
 
 def _csv(value: str | None) -> frozenset[str] | None:
@@ -54,7 +61,7 @@ def resolve_overrides(args: argparse.Namespace) -> Overrides:
     if args.force_all:
         force = "--force-all"
     elif os.environ.get("EVALS_FORCE_ALL", "").lower() in _TRUTHY:
-        force = "EVALS_FORCE_ALL"
+        force = os.environ.get("EVALS_FORCE_REASON") or "EVALS_FORCE_ALL"
     elif FULL_LABEL in labels:
         force = f"label `{FULL_LABEL}`"
     skip = f"label `{SKIP_LABEL}`" if SKIP_LABEL in labels else None
@@ -98,6 +105,8 @@ def build_plan(
         base_sha = gitutil.merge_base(repo, base_sha, head_sha if head else "HEAD")
 
     changed = gitutil.changed_files(repo, base_sha, head_sha if head else None)
+    if not overrides.force_all and any(f.startswith(PLANNER_PATHS) for f in changed):
+        overrides = dataclasses.replace(overrides, force_all=PLANNER_CHANGED)
     with tempfile.TemporaryDirectory(prefix="evals-impact-") as tmp:
         head_tree = gitutil.export_tree(repo, head_sha, Path(tmp) / "head") if head else repo
         head_suites = load_suite_infos(head_tree)

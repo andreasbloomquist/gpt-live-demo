@@ -304,3 +304,17 @@ def test_import_time_print_does_not_break_fingerprinting(repo: Path, edit) -> No
     commit_all(repo, "noisy import")
     plan = plan_for(repo, fast_path=False)
     assert planned(plan) == set(), plan.notes
+
+
+def test_planner_change_forces_everything(repo: Path) -> None:
+    # CI runs the base's planner; a PR that edits the planner is not trusted to judge itself.
+    rules = repo / "evals/impact/rules.py"
+    rules.parent.mkdir(parents=True, exist_ok=True)
+    rules.write_text("def affects(*_):\n    return False\n")
+    plan = plan_for(repo)
+    assert planned(plan) == every("brain") | every("voice")
+    assert all(
+        r.reasons[0] == "forced: planner code changed: running everything" for r in plan.runs
+    )
+    # evals:skip (a maintainer label) still wins.
+    assert planned(plan_for(repo, Overrides(skip_all="label `evals:skip`"))) == set()

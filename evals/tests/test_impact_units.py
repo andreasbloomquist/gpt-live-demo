@@ -341,3 +341,17 @@ def test_estimate_uses_configured_backend_model(monkeypatch: pytest.MonkeyPatch)
     _, cheap = cli._estimate("brain", suite, None, "gpt-4.1-mini")
     _, default = cli._estimate("brain", suite, None, cli.DEFAULT_BACKEND_MODEL)
     assert cheap < default
+
+
+def test_force_reason_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    import argparse
+
+    from evals.impact.cli import resolve_overrides
+
+    args = argparse.Namespace(labels="", force_all=False, suites=None, tiers=None)
+    monkeypatch.setenv("EVALS_FORCE_ALL", "true")
+    assert resolve_overrides(args).force_all == "EVALS_FORCE_ALL"
+    monkeypatch.setenv("EVALS_FORCE_REASON", "planner code changed: running everything")
+    assert resolve_overrides(args).force_all == "planner code changed: running everything"
+    monkeypatch.setenv("EVALS_FORCE_ALL", "false")
+    assert resolve_overrides(args).force_all is None

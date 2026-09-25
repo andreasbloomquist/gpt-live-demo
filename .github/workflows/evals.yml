@@ -106,20 +106,51 @@ jobs:
             echo "base=origin/$DEFAULT_BRANCH" >> "$GITHUB_OUTPUT"
           fi
 
+      # The planner decides which of a PR's evals run, so it must not be the PR's own code:
+      # export evals/ from the BASE commit and run that copy. Two cases have no trustworthy
+      # judge and force a full run: the base has no planner yet (bootstrap, so the head's
+      # planner runs, forced), or the PR changes the planner or this workflow. The base's
+      # planner enforces the second rule too (evals/impact/cli.py: PLANNER_PATHS).
+      - name: Export trusted planner (base commit)
+        id: planner
+        env:
+          BASE: ${{ steps.refs.outputs.base }}
+        run: |
+          merge_base="$(git merge-base "$BASE" HEAD)"
+          force=false
+          if git cat-file -e "$BASE:evals/impact/cli.py" 2>/dev/null; then
+            dir="$RUNNER_TEMP/trusted-planner"
+            mkdir -p "$dir"
+            git archive "$BASE" evals | tar -x -C "$dir"
+          else
+            dir="$GITHUB_WORKSPACE"
+            force=true
+          fi
+          if ! git diff --quiet "$merge_base" HEAD -- evals/impact .github/workflows/evals.yml; then
+            force=true
+          fi
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+          echo "force=$force" >> "$GITHUB_OUTPUT"
+
       - name: Plan evals
         id: plan
         env:
           BASE: ${{ steps.refs.outputs.base }}
+          PLANNER_DIR: ${{ steps.planner.outputs.dir }}
           # Label names are user-controlled: pass them via env, never interpolate into the script.
           EVALS_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
-          EVALS_FORCE_ALL: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.force_all) }}
+          EVALS_FORCE_ALL: ${{ steps.planner.outputs.force == 'true' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.force_all) }}
+          EVALS_FORCE_REASON: "${{ steps.planner.outputs.force == 'true' && 'planner code changed: running everything' || '' }}"
           SUITES: ${{ inputs.suites || 'all' }}
           TIERS: ${{ inputs.tiers || 'all' }}
-        run: >-
-          uv run python -m evals.impact plan
-          --base "$BASE" --head HEAD
-          --suites "$SUITES" --tiers "$TIERS"
-          --format github --output eval-plan.json
+        # `python -m` from PLANNER_DIR imports that copy of `evals` (cwd comes first on sys.path;
+        # the venv only adds agent/). It still fingerprints the full checkout via --repo.
+        run: |
+          cd "$PLANNER_DIR"
+          "$GITHUB_WORKSPACE/.venv/bin/python" -m evals.impact plan \
+            --repo "$GITHUB_WORKSPACE" --base "$BASE" --head HEAD \
+            --suites "$SUITES" --tiers "$TIERS" \
+            --format github --output "$GITHUB_WORKSPACE/eval-plan.json"
 
       - name: Secrets gate
         id: gate
