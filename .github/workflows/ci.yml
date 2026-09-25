@@ -1,0 +1,161 @@
+# Free, key-less checks on every PR and push to main.
+#
+# Paid model evals live in evals.yml and only run when the change-impact detector says a
+# change can affect agent behaviour. Everything here must pass without any secret.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      python: ${{ github.event_name == 'push' || steps.filter.outputs.python == 'true' }}
+      frontend: ${{ github.event_name == 'push' || steps.filter.outputs.frontend == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            python:
+              - 'agent/**'
+              - 'evals/**'
+              - 'prompts/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/workflows/**'
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/ci.yml'
+
+  lint:
+    name: Lint (ruff)
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+
+  test:
+    name: Tests (pytest)
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - run: uv sync --locked --group evals
+      # agent/tests + evals/tests (the detector tests build throwaway git repos in tmp dirs).
+      - run: uv run pytest -q
+
+  prompts:
+    name: Prompt render + eval suite check
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - run: uv sync --locked --group evals
+      - name: Render every profile (voice + backend) with the real composer
+        run: |
+          set -euo pipefail
+          profiles=$(uv run python -m voice_agent.prompts list | cut -f1)
+          test -n "$profiles"
+          for profile in $profiles; do
+            for target in voice backend; do
+              echo "::group::${profile} / ${target}"
+              uv run python -m voice_agent.prompts render "$profile" --target "$target"
+              echo "::endgroup::"
+            done
+          done
+      - name: Build tool schemas for every registered tool
+        run: uv run python -m evals.impact probe --strict
+      - name: Validate eval suites against the agent
+        run: uv run python -m evals validate
+      - name: Suite JSON schema is up to date
+        run: |
+          uv run python -m evals schema --write
+          git diff --exit-code -- evals/suite.schema.json
+      - name: Eval dry-run (no network, no keys)
+        run: |
+          uv run python -m evals run --tier brain --dry-run
+          uv run python -m evals run --tier voice --dry-run
+
+  frontend:
+    name: Frontend (lint, typecheck, build)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      # Placeholders: the token route reads these at request time, never at build time.
+      LIVEKIT_URL: wss://placeholder.livekit.cloud
+      LIVEKIT_API_KEY: placeholder
+      LIVEKIT_API_SECRET: placeholder
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect package manager from lockfile
+        id: pm
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            echo "manager=pnpm" >> "$GITHUB_OUTPUT"
+            echo "install=pnpm install --frozen-lockfile" >> "$GITHUB_OUTPUT"
+          elif [ -f package-lock.json ]; then
+            echo "manager=npm" >> "$GITHUB_OUTPUT"
+            echo "install=npm ci" >> "$GITHUB_OUTPUT"
+          else
+            echo "manager=npm" >> "$GITHUB_OUTPUT"
+            echo "install=npm install" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: ${{ hashFiles('frontend/package-lock.json') != '' && 'npm' || '' }}
+          cache-dependency-path: frontend/package-lock.json
+      - name: Enable pnpm via corepack
+        if: steps.pm.outputs.manager == 'pnpm'
+        run: corepack enable pnpm
+      - run: ${{ steps.pm.outputs.install }}
+      - run: ${{ steps.pm.outputs.manager }} run --if-present lint
+      - run: ${{ steps.pm.outputs.manager }} run --if-present typecheck
+      - run: ${{ steps.pm.outputs.manager }} run build

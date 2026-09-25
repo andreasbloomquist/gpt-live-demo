@@ -1,0 +1,263 @@
+{
+  "$defs": {
+    "Case": {
+      "additionalProperties": false,
+      "description": "One scenario. Either a single ``user`` utterance or a multi-turn ``turns`` script; the\nexpectations apply to the agent's behaviour over the *whole* case, judged after the last turn.",
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9][a-z0-9_\\-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "user": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User"
+        },
+        "turns": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Turns"
+        },
+        "tiers": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "brain",
+                  "voice"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Restrict this case to a subset of the suite's tiers.",
+          "title": "Tiers"
+        },
+        "trials": {
+          "anyOf": [
+            {
+              "maximum": 20,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trials"
+        },
+        "expect": {
+          "$ref": "#/$defs/Expect"
+        }
+      },
+      "required": [
+        "id",
+        "expect"
+      ],
+      "title": "Case",
+      "type": "object"
+    },
+    "Expect": {
+      "additionalProperties": false,
+      "description": "What a case asserts. Deterministic checks run first; the LLM judge only runs if they pass\n(cheaper, and a judge should never be asked to excuse a wrong tool call).",
+      "properties": {
+        "tool_calls": {
+          "items": {
+            "$ref": "#/$defs/ExpectedToolCall"
+          },
+          "title": "Tool Calls",
+          "type": "array"
+        },
+        "ordered": {
+          "default": false,
+          "description": "Require expected tool calls to appear in this order.",
+          "title": "Ordered",
+          "type": "boolean"
+        },
+        "no_tool_calls": {
+          "default": false,
+          "description": "Assert that no tool is called.",
+          "title": "No Tool Calls",
+          "type": "boolean"
+        },
+        "forbidden_tools": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Forbidden Tools",
+          "type": "array"
+        },
+        "max_words": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Upper bound on words in the final spoken reply.",
+          "title": "Max Words"
+        },
+        "must_not_match": {
+          "description": "Regexes (case-insensitive) the final reply must not match, e.g. URLs.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Must Not Match",
+          "type": "array"
+        },
+        "judge": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rubric for the LLM judge, phrased as pass criteria.",
+          "title": "Judge"
+        }
+      },
+      "title": "Expect",
+      "type": "object"
+    },
+    "ExpectedToolCall": {
+      "additionalProperties": false,
+      "description": "A tool call the agent must make.\n\n``args_subset`` only constrains the keys it lists, because the model may legitimately add\noptional arguments (e.g. ``city``). Values are matched leniently (see\n:func:`evals.runners.assertions.match_value`): strings compare case/whitespace-insensitively,\nand operator dicts ``{\"$regex\": ...}``, ``{\"$in\": [...]}``, ``{\"$contains\": ...}``,\n``{\"$exists\": true}`` express the \"any reasonable value\" cases.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "args_subset": {
+          "additionalProperties": true,
+          "title": "Args Subset",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ExpectedToolCall",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A named group of cases sharing a prompt profile and tier configuration.\n\n``tools`` declares which tools the suite exercises. The change-impact detector uses it to\ndecide that a change to ``check_restaurant_availability``'s implementation must re-run the\nrestaurant suite's brain tier but not the web-search suite's.",
+  "properties": {
+    "name": {
+      "pattern": "^[a-z0-9][a-z0-9_\\-]*$",
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "profile": {
+      "title": "Profile",
+      "type": "string"
+    },
+    "tiers": {
+      "items": {
+        "enum": [
+          "brain",
+          "voice"
+        ],
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Tiers",
+      "type": "array"
+    },
+    "tools": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tools",
+      "type": "array"
+    },
+    "trials": {
+      "default": 3,
+      "description": "Default trials per case.",
+      "maximum": 20,
+      "minimum": 1,
+      "title": "Trials",
+      "type": "integer"
+    },
+    "pass_threshold": {
+      "default": 0.66,
+      "description": "Minimum per-case pass rate across trials for the case to pass.",
+      "exclusiveMinimum": 0,
+      "maximum": 1,
+      "title": "Pass Threshold",
+      "type": "number"
+    },
+    "cases": {
+      "items": {
+        "$ref": "#/$defs/Case"
+      },
+      "minItems": 1,
+      "title": "Cases",
+      "type": "array"
+    }
+  },
+  "required": [
+    "name",
+    "profile",
+    "tiers",
+    "cases"
+  ],
+  "title": "GPT-Live eval suite",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

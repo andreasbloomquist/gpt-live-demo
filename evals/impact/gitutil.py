@@ -14,9 +14,7 @@ class GitError(RuntimeError):
 
 
 def git(repo: Path, *args: str) -> str:
-    proc = subprocess.run(
-        ["git", *args], cwd=repo, capture_output=True, text=True, check=False
-    )
+    proc = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         raise GitError(f"git {' '.join(args)} failed: {proc.stderr.strip()}")
     return proc.stdout
@@ -47,7 +45,7 @@ def export_tree(repo: Path, ref: str, dest: Path) -> Path:
         if hasattr(tarfile, "data_filter"):
             tar.extractall(dest, filter="data")
         else:  # Python < 3.11.4
-            tar.extractall(dest)  # noqa: S202 - trusted: our own repository
+            tar.extractall(dest)  # trusted input: our own repository
     if proc.wait() != 0:
         raise GitError(f"git archive {ref} failed")
     return dest

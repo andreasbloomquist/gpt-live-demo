@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -22,6 +23,8 @@ import yaml
 
 from evals.impact import normalize as norm
 from evals.impact import rules
+
+_SAFE_NAME = re.compile(r"^[a-z0-9][a-z0-9_\-]{0,63}$")
 
 
 @dataclass(frozen=True)
@@ -109,6 +112,9 @@ def load_suite_infos(tree: Path) -> dict[str, SuiteInfo]:
             if isinstance(case, dict):
                 case_tiers.update(case.get("tiers") or tiers)
         name = str(data.get("name") or path.stem)
+        if not _SAFE_NAME.match(name):
+            # Suite names flow into CI matrices and shell steps: never trust PR-controlled text.
+            continue
         infos[name] = SuiteInfo(
             name=name,
             profile=str(data.get("profile", "")),
@@ -124,9 +130,7 @@ def _python_files(tree: Path, rel_dir: str) -> list[str]:
     if not root.is_dir():
         return []
     return sorted(
-        p.relative_to(tree).as_posix()
-        for p in root.rglob("*.py")
-        if "__pycache__" not in p.parts
+        p.relative_to(tree).as_posix() for p in root.rglob("*.py") if "__pycache__" not in p.parts
     )
 
 

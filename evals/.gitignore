@@ -1,0 +1,3 @@
+# Local eval artifacts (results, synthesized TTS audio cache)
+.results/
+.cache/

@@ -56,6 +56,9 @@ def github_outputs(plan: Plan) -> dict[str, str]:
         suites = sorted({r.suite for r in plan.runs_for(tier)})
         outputs[f"{tier}_matrix"] = json.dumps({"suite": suites}, separators=(",", ":"))
         outputs[f"run_{tier}"] = "true" if suites else "false"
+        outputs[f"{tier}_fingerprints"] = json.dumps(
+            {r.suite: r.fingerprint for r in plan.runs_for(tier)}, separators=(",", ":")
+        )
     outputs["any"] = "true" if plan.runs else "false"
     return outputs
 

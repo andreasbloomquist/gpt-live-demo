@@ -1,0 +1,298 @@
+# Paid model evals, gated by semantic change-impact detection.
+#
+#   plan ──► brain (matrix, cheap) ──► voice (matrix, expensive; only if brain passed) ──► report
+#
+# Gates, cheapest first:
+#   1. `paths` filter: PRs that touch nothing agent-related never start this workflow.
+#   2. `plan`: `python -m evals.impact` fingerprints base vs head (rendered prompts, tool
+#      schemas, normalized ASTs, settings defaults, lockfile) and emits the exact suite x tier
+#      matrix. Whitespace/comment/docs-only edits plan nothing.
+#   3. secrets: fork PRs and repos without OPENAI_API_KEY skip paid jobs with a clear note.
+#   4. brain must pass before any voice session is paid for.
+#   5. a hard per-job USD budget inside the runner.
+#
+# Overrides: PR labels `evals:full` (run everything) / `evals:skip` (run nothing);
+# workflow_dispatch inputs; nightly schedule runs everything on the default branch.
+name: Evals
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+    paths:
+      - "agent/**"
+      - "prompts/**"
+      - "evals/**"
+      - "uv.lock"
+      - ".github/workflows/evals.yml"
+  workflow_dispatch:
+    inputs:
+      suites:
+        description: "Comma-separated suites, or 'all'"
+        type: string
+        default: all
+      tiers:
+        description: "Comma-separated tiers (brain,voice), or 'all'"
+        type: string
+        default: all
+      force_all:
+        description: "Ignore change detection and run the selected suites/tiers"
+        type: boolean
+        default: true
+      max_cost_usd:
+        description: "Hard budget per matrix job (USD)"
+        type: string
+        default: "5"
+  schedule:
+    - cron: "17 7 * * *" # nightly full run (off the hour to avoid scheduler congestion)
+
+permissions:
+  contents: read
+
+concurrency:
+  # One eval run per PR; a new push cancels the stale run. Label events for unrelated labels get
+  # a unique group so they can never cancel a real run.
+  group: >-
+    evals-${{ github.event.pull_request.number || github.ref }}${{
+    (github.event.action == 'labeled' || github.event.action == 'unlabeled')
+    && !startsWith(github.event.label.name, 'evals:')
+    && format('-noop-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHON_VERSION: "3.11"
+  RESULTS_DIR: eval-results
+
+jobs:
+  plan:
+    name: Plan (change impact)
+    # Re-plan on label changes only for evals:* labels.
+    if: >-
+      github.event_name != 'pull_request'
+      || (github.event.action != 'labeled' && github.event.action != 'unlabeled')
+      || startsWith(github.event.label.name, 'evals:')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      brain_matrix: ${{ steps.plan.outputs.brain_matrix }}
+      voice_matrix: ${{ steps.plan.outputs.voice_matrix }}
+      brain_fingerprints: ${{ steps.plan.outputs.brain_fingerprints }}
+      voice_fingerprints: ${{ steps.plan.outputs.voice_fingerprints }}
+      run_brain: ${{ steps.plan.outputs.run_brain }}
+      run_voice: ${{ steps.plan.outputs.run_voice }}
+      any: ${{ steps.plan.outputs.any }}
+      can_spend: ${{ steps.gate.outputs.can_spend }}
+      gate_reason: ${{ steps.gate.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the detector exports the merge-base tree with `git archive`
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - run: uv sync --locked
+
+      - name: Resolve base ref
+        id: refs
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ -n "$PR_BASE_SHA" ]; then
+            echo "base=$PR_BASE_SHA" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=origin/$DEFAULT_BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Plan evals
+        id: plan
+        env:
+          BASE: ${{ steps.refs.outputs.base }}
+          # Label names are user-controlled: pass them via env, never interpolate into the script.
+          EVALS_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          EVALS_FORCE_ALL: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.force_all) }}
+          SUITES: ${{ inputs.suites || 'all' }}
+          TIERS: ${{ inputs.tiers || 'all' }}
+        run: >-
+          uv run python -m evals.impact plan
+          --base "$BASE" --head HEAD
+          --suites "$SUITES" --tiers "$TIERS"
+          --format github --output eval-plan.json
+
+      - name: Secrets gate
+        id: gate
+        env:
+          IS_FORK: ${{ github.event.pull_request.head.repo.fork == true }}
+        run: |
+          if [ "$IS_FORK" = "true" ]; then
+            echo "can_spend=false" >> "$GITHUB_OUTPUT"
+            echo "reason=PR from a fork: repository secrets are not available, paid evals skipped. A maintainer can run them via workflow_dispatch." >> "$GITHUB_OUTPUT"
+          else
+            echo "can_spend=true" >> "$GITHUB_OUTPUT"
+            echo "reason=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eval-plan
+          path: eval-plan.json
+          retention-days: 30
+
+  brain:
+    name: Brain evals (${{ matrix.suite }})
+    needs: plan
+    if: needs.plan.outputs.run_brain == 'true' && needs.plan.outputs.can_spend == 'true'
+    runs-on: ubuntu-latest
+    environment: evals # holds OPENAI_API_KEY; add protection rules (e.g. required reviewers) here
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.plan.outputs.brain_matrix) }}
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      SUITE: ${{ matrix.suite }}
+      FINGERPRINTS: ${{ needs.plan.outputs.brain_fingerprints }}
+      MAX_COST_USD: ${{ inputs.max_cost_usd || vars.EVALS_MAX_COST_USD || '3' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - run: uv sync --locked --group evals
+      - name: Run brain tier
+        run: >-
+          uv run python -m evals run --tier brain --suite "$SUITE"
+          --max-cost-usd "$MAX_COST_USD" --fingerprints "$FINGERPRINTS"
+          --results-dir "$RESULTS_DIR" --skip-if-no-key
+      - name: Job summary
+        if: always()
+        run: cat "$RESULTS_DIR"/*.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-results-brain-${{ matrix.suite }}
+          path: ${{ env.RESULTS_DIR }}/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  voice:
+    name: Voice evals (${{ matrix.suite }})
+    needs: [plan, brain]
+    # Cheap gate before expensive: never pay for GPT-Live sessions when the brain tier failed.
+    # `skipped` is fine: the plan may need voice only (e.g. a voice-prompt-only change).
+    if: >-
+      !cancelled()
+      && needs.plan.outputs.run_voice == 'true'
+      && needs.plan.outputs.can_spend == 'true'
+      && (needs.brain.result == 'success' || needs.brain.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: evals
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 2 # real-time audio sessions: keep concurrency (and rate limits) modest
+      matrix: ${{ fromJSON(needs.plan.outputs.voice_matrix) }}
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      SUITE: ${{ matrix.suite }}
+      FINGERPRINTS: ${{ needs.plan.outputs.voice_fingerprints }}
+      MAX_COST_USD: ${{ inputs.max_cost_usd || vars.EVALS_MAX_COST_USD || '3' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - run: uv sync --locked --group evals
+      # Synthesized user turns are deterministic per (text, TTS model, voice): cache them.
+      - uses: actions/cache@v4
+        with:
+          path: evals/.cache/tts
+          key: eval-tts-${{ hashFiles('evals/suites/*.yaml') }}
+          restore-keys: eval-tts-
+      - name: Run voice tier
+        run: >-
+          uv run python -m evals run --tier voice --suite "$SUITE"
+          --max-cost-usd "$MAX_COST_USD" --fingerprints "$FINGERPRINTS"
+          --results-dir "$RESULTS_DIR" --skip-if-no-key
+      - name: Job summary
+        if: always()
+        run: cat "$RESULTS_DIR"/*.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-results-voice-${{ matrix.suite }}
+          path: ${{ env.RESULTS_DIR }}/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  report:
+    name: Report
+    needs: [plan, brain, voice]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write # sticky PR comment only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - run: uv sync --locked
+      - uses: actions/download-artifact@v4
+        with:
+          name: eval-plan
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: eval-results-*
+          path: ${{ env.RESULTS_DIR }}
+          merge-multiple: true
+      - name: Build report
+        env:
+          GATE_REASON: ${{ needs.plan.outputs.gate_reason }}
+          BRAIN_RESULT: ${{ needs.brain.result }}
+          VOICE_RESULT: ${{ needs.voice.result }}
+          RUN_VOICE: ${{ needs.plan.outputs.run_voice }}
+        run: |
+          mkdir -p "$RESULTS_DIR"
+          notes=()
+          [ -n "$GATE_REASON" ] && notes+=(--note "$GATE_REASON")
+          if [ "$RUN_VOICE" = "true" ] && [ "$BRAIN_RESULT" = "failure" ]; then
+            notes+=(--note "Voice tier not run: brain tier failed (cheap gate before expensive).")
+          fi
+          notes+=(--note "Jobs: brain=${BRAIN_RESULT}, voice=${VOICE_RESULT}.")
+          uv run python -m evals report --results-dir "$RESULTS_DIR" --plan eval-plan.json \
+            --output eval-report.md "${notes[@]}"
+          cat eval-report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: eval-report.md
+          retention-days: 30
+      - name: Sticky PR comment
+        # Fork PRs get a read-only token; their summary lives in the job summary instead.
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- gpt-live-evals-report -->';
+            const body = fs.readFileSync('eval-report.md', 'utf8');
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            });
+            const mine = comments.find(
+              (c) => c.user?.type === 'Bot' && c.body?.includes(marker),
+            );
+            if (mine) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

@@ -138,9 +138,7 @@ def _target(info: SuiteInfo, base: Snapshot, head: Snapshot) -> rules.SuiteTarge
 
 
 def _fingerprint(head: Snapshot, target: rules.SuiteTarget, tier: Tier) -> str:
-    relevant = {
-        k: c.digest for k, c in head.components.items() if rules.affects(k, target, tier)
-    }
+    relevant = {k: c.digest for k, c in head.components.items() if rules.affects(k, target, tier)}
     return norm.digest(relevant)
 
 

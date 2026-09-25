@@ -69,7 +69,10 @@ class Expect(_Strict):
     @classmethod
     def _regexes_compile(cls, value: list[str]) -> list[str]:
         for pattern in value:
-            re.compile(pattern)
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ValueError(f"invalid regex {pattern!r}: {exc}") from None
         return value
 
     @model_validator(mode="after")
@@ -128,7 +131,7 @@ class Suite(_Strict):
     tools: list[str] = Field(default_factory=list)
     trials: int = Field(default=3, ge=1, le=20, description="Default trials per case.")
     pass_threshold: float = Field(
-        default=0.67,
+        default=0.66,
         gt=0,
         le=1,
         description="Minimum per-case pass rate across trials for the case to pass.",

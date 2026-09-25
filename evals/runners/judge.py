@@ -57,9 +57,7 @@ async def judge_transcript(
     )
     parsed: _Verdict | None = response.output_parsed
     usage = getattr(response, "usage", None)
-    cost = (
-        text_cost(model, usage.input_tokens, usage.output_tokens) if usage is not None else 0.0
-    )
+    cost = text_cost(model, usage.input_tokens, usage.output_tokens) if usage is not None else 0.0
     if parsed is None:
         return JudgeVerdict(False, "judge returned no parseable verdict", model), cost
     return JudgeVerdict(parsed.verdict, parsed.reasoning, model), cost

@@ -10,7 +10,7 @@ profile: concierge
 tiers: [brain, voice]
 tools: [web_search]
 trials: 3
-pass_threshold: 0.67
+pass_threshold: 0.66  # i.e. at least 2 of 3 trials
 
 cases:
   - id: fresh_news_uses_search

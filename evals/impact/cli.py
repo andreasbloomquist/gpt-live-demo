@@ -19,6 +19,7 @@ import json
 import os
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from evals.impact import gitutil, output
@@ -97,8 +98,14 @@ def build_plan(
         # Both trees are fingerprinted with the *head* checkout's evals code, so the rules and
         # normalizers are identical on both sides.
         evals_root = Path(__file__).resolve().parents[2]
-        base_snap = build_snapshot(base_tree, label="base", evals_root=evals_root, python=python)
-        head_snap = build_snapshot(head_tree, label="head", evals_root=evals_root, python=python)
+        with ThreadPoolExecutor(max_workers=2) as pool:  # two independent subprocesses
+            base_future = pool.submit(
+                build_snapshot, base_tree, label="base", evals_root=evals_root, python=python
+            )
+            head_future = pool.submit(
+                build_snapshot, head_tree, label="head", evals_root=evals_root, python=python
+            )
+            base_snap, head_snap = base_future.result(), head_future.result()
     return make_plan(
         base_snap,
         head_snap,
@@ -154,8 +161,11 @@ def _cmd_probe(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m evals.impact", description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        prog="python -m evals.impact",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("plan", help="compute which suites x tiers must run")
@@ -165,14 +175,23 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--format", choices=("text", "json", "github"), default="text")
     p.add_argument("--output", help="also write the plan JSON to this file")
     p.add_argument("--force-all", action="store_true")
-    p.add_argument("--labels", default=None, help=f"comma-separated PR labels ({FULL_LABEL}, "
-                   f"{SKIP_LABEL}); defaults to $EVALS_LABELS")
+    p.add_argument(
+        "--labels",
+        default=None,
+        help=f"comma-separated PR labels ({FULL_LABEL}, {SKIP_LABEL}); defaults to $EVALS_LABELS",
+    )
     p.add_argument("--suites", default=None, help="comma-separated suite filter, or 'all'")
     p.add_argument("--tiers", default=None, help="comma-separated tier filter, or 'all'")
-    p.add_argument("--no-merge-base", action="store_true",
-                   help="diff against --base directly instead of merge-base(base, head)")
-    p.add_argument("--no-fast-path", action="store_true",
-                   help="always fingerprint both trees, even for docs-only diffs")
+    p.add_argument(
+        "--no-merge-base",
+        action="store_true",
+        help="diff against --base directly instead of merge-base(base, head)",
+    )
+    p.add_argument(
+        "--no-fast-path",
+        action="store_true",
+        help="always fingerprint both trees, even for docs-only diffs",
+    )
     p.set_defaults(func=_cmd_plan)
 
     q = sub.add_parser("probe", help="render prompts + tool schemas of a tree")
