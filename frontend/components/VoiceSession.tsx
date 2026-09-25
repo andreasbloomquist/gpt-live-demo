@@ -33,19 +33,31 @@ export function VoiceSession() {
 
   return (
     <section className="card session">
-      <div className="status">
+      <div className="status" role="status">
         <span className={`dot dot-${state}`} aria-hidden />
         <span>{STATE_LABELS[state] ?? state}</span>
       </div>
 
       {/* Bars animate with the agent's voice; `state` adds idle/thinking animations. */}
-      <BarVisualizer state={state} track={audioTrack} barCount={7} className="visualizer" />
+      <BarVisualizer
+        state={state}
+        track={audioTrack}
+        barCount={7}
+        className="visualizer"
+        aria-hidden
+      />
 
       <div className="controls">
-        <TrackToggle source={Track.Source.Microphone} className="btn" showIcon>
+        {/* TrackToggle sets aria-pressed, so "Microphone" + pressed state reads correctly. */}
+        <TrackToggle
+          source={Track.Source.Microphone}
+          className="btn"
+          showIcon
+          aria-label="Microphone"
+        >
           Mic
         </TrackToggle>
-        <DisconnectButton className="btn danger">
+        <DisconnectButton className="btn danger" aria-label="End conversation">
           End
         </DisconnectButton>
       </div>

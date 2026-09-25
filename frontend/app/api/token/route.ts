@@ -5,12 +5,19 @@
  * room, so each browser session gets its own agent. If LIVEKIT_AGENT_NAME is
  * set, the token also carries an explicit agent dispatch (needed when the
  * Python worker registers with `agent_name=...`, which disables auto-dispatch).
+ *
+ * SECURITY: this route is unauthenticated. Anyone who can reach it gets a token,
+ * and every token starts a paid GPT-Live session. That is fine on localhost; before
+ * exposing it publicly, put your app's auth and a rate limit in front of it.
+ * The grant is least-privilege: join this one room, publish the microphone only
+ * (no camera/screen, no data messages), and subscribe to the agent's audio.
  */
 import { NextResponse } from "next/server";
 import {
   AccessToken,
   RoomAgentDispatch,
   RoomConfiguration,
+  TrackSource,
 } from "livekit-server-sdk";
 import type { ConnectionDetails } from "@/lib/types";
 
@@ -39,6 +46,8 @@ export async function POST() {
   const participantIdentity = `user-${suffix}`;
   const participantName = "You";
 
+  // `ttl` only bounds how long the token can be used to *join*; LiveKit refreshes the
+  // credentials of connected participants, so calls can outlast it.
   const token = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
     identity: participantIdentity,
     name: participantName,
@@ -48,7 +57,8 @@ export async function POST() {
     room: roomName,
     roomJoin: true,
     canPublish: true,
-    canPublishData: true,
+    canPublishSources: [TrackSource.MICROPHONE],
+    canPublishData: false,
     canSubscribe: true,
   });
 

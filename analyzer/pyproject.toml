@@ -1,0 +1,47 @@
+[project]
+name = "call-analyzer"
+version = "0.1.0"
+description = "Stores voice-agent call records and scores them with a small LLM (or an offline heuristic)."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "openai>=1.60",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+call-analyzer = "call_analyzer.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["call_analyzer"]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+# Share the repo-wide style (line length, rule set); only first-party detection differs.
+extend = "../pyproject.toml"
+src = ["."]
+
+[tool.ruff.lint.isort]
+known-first-party = ["call_analyzer"]

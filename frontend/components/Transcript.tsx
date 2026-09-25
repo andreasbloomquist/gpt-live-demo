@@ -14,20 +14,22 @@ import { useLocalParticipant, useTranscriptions } from "@livekit/components-reac
 export function Transcript() {
   const transcriptions = useTranscriptions();
   const { localParticipant } = useLocalParticipant();
-  const endRef = useRef<HTMLDivElement>(null);
+  const logRef = useRef<HTMLDivElement>(null);
 
   const lines = [...transcriptions]
     .filter((t) => t.text.trim().length > 0)
     .sort((a, b) => a.streamInfo.timestamp - b.streamInfo.timestamp);
 
-  // Keep the newest line in view (re-runs as lines are added or grow).
+  // Keep the newest line in view (re-runs as lines are added or grow). Scroll only the
+  // transcript box: scrollIntoView() would also yank the whole page on every word.
   const lastText = lines.at(-1)?.text;
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const el = logRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [lines.length, lastText]);
 
   return (
-    <div className="transcript" aria-live="polite">
+    <div ref={logRef} className="transcript" role="log" aria-label="Transcript">
       {lines.length === 0 ? (
         <p className="muted">Transcript will appear here.</p>
       ) : (
@@ -41,7 +43,6 @@ export function Transcript() {
           );
         })
       )}
-      <div ref={endRef} />
     </div>
   );
 }

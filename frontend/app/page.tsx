@@ -21,8 +21,11 @@ export default function Home() {
     setError(null);
     try {
       const res = await fetch("/api/token", { method: "POST" });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? `Token request failed (${res.status})`);
+      // A crashed route or a proxy can answer with HTML: don't surface a JSON parse error.
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body) {
+        throw new Error(body?.error ?? `Token request failed (HTTP ${res.status})`);
+      }
       setDetails(body as ConnectionDetails);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -32,6 +35,25 @@ export default function Home() {
   }, []);
 
   const disconnect = useCallback(() => setDetails(null), []);
+
+  const onMediaDeviceFailure = useCallback((failure?: MediaDeviceFailure) => {
+    setError(
+      failure === MediaDeviceFailure.PermissionDenied
+        ? "Microphone permission denied. Allow mic access and try again."
+        : "Could not access your microphone.",
+    );
+  }, []);
+
+  // LiveKitRoom reports both connection failures and mic-publish failures here. A mic
+  // failure was already explained by onMediaDeviceFailure (which fires first), so keep
+  // that message. Anything else means the call cannot work: go back to the start screen
+  // instead of leaving a dead session on screen.
+  const onError = useCallback((e: Error) => {
+    const failure = MediaDeviceFailure.getFailure(e);
+    if (failure !== undefined && failure !== MediaDeviceFailure.Other) return;
+    setError(e.message);
+    setDetails(null);
+  }, []);
 
   return (
     <main className="shell">
@@ -48,14 +70,8 @@ export default function Home() {
           audio // publish the microphone on connect
           video={false}
           onDisconnected={disconnect}
-          onMediaDeviceFailure={(failure?: MediaDeviceFailure) => {
-            setError(
-              failure === MediaDeviceFailure.PermissionDenied
-                ? "Microphone permission denied. Allow mic access and try again."
-                : "Could not access your microphone.",
-            );
-          }}
-          onError={(e) => setError(e.message)}
+          onMediaDeviceFailure={onMediaDeviceFailure}
+          onError={onError}
           className="room"
         >
           <VoiceSession />

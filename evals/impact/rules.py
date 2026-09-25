@@ -8,13 +8,14 @@ component key          produced from                  re-runs
 prompt.voice:<prof>    rendered voice instructions    voice tier of suites on <prof>
 prompt.backend:<prof>  rendered backend instructions  brain + voice of suites on <prof>
 profile.tools:<prof>   tool list of the profile       brain + voice of suites on <prof>
+profile.error:<prof>   profile fails to render        brain + voice of suites on <prof>
 tool.schema:<tool>     tool JSON schema (model view)  brain + voice of suites whose *profile*
                                                       exposes <tool> (the model sees it even
                                                       when a case doesn't call it)
 tool.impl:<tool>       normalized AST of tool code    brain tier of suites that *declare*
-                                                      <tool> in ``tools``
+                       (+ agent modules it imports)   <tool> in ``tools``
 code.core              composer / registry AST        everything
-code.other:<path>      any other agent module AST     everything (unknown ⇒ conservative)
+code.other:<path>      any other agent file           everything (unknown ⇒ conservative)
 code.backend_runtime   model.py AST                   brain + voice of every suite
                                                       (``build_responses_options`` there is
                                                       the brain tier's backend config)
@@ -75,7 +76,11 @@ RUNNER_CODE: dict[str, tuple[str, ...]] = {
 
 # Settings that never change agent behaviour in evals (credentials, endpoints, logging, and
 # the OpenTable provider, which evals replace with the deterministic mock).
-CONFIG_IGNORED = re.compile(r"(api_key|secret|token|_url$|^log_level$|^livekit_|^opentable_)")
+# Credential patterns are anchored to whole name segments: an unanchored ``token`` would also
+# swallow behavioural settings such as ``gpt_live_backend_max_output_tokens``.
+CONFIG_IGNORED = re.compile(
+    r"(^|_)(api_key|secret|token)$|_url$|^log_level$|^livekit_|^opentable_"
+)
 # Settings consumed only by the GPT-Live voice model.
 CONFIG_VOICE_ONLY = re.compile(r"^gpt_live_(model|voice)$")
 

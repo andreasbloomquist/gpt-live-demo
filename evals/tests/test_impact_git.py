@@ -151,7 +151,7 @@ def test_backend_setting_default_runs_both(repo: Path, edit) -> None:
 def test_secret_setting_change_runs_nothing(repo: Path, edit) -> None:
     edit(
         "agent/voice_agent/config.py",
-        lambda t: t.replace('log_level: str = "INFO"', 'log_level: str = "DEBUG"'),
+        lambda t: re.sub(r'(log_level: [^=\n]+= )"INFO"', r'\1"DEBUG"', t),
     )
     assert planned(plan_for(repo)) == set()
 

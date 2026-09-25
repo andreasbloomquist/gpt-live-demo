@@ -111,6 +111,8 @@ class TrialResult:
     first_response_latency_s: float | None = None
     cost_usd: float = 0.0
     meta: dict[str, Any] = field(default_factory=dict)
+    crashed: bool = False
+    """The conversation raised, so ``cost_usd`` is unknown (the budget charges the estimate)."""
 
     @property
     def failure_summary(self) -> str:

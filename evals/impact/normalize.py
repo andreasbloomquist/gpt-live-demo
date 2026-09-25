@@ -28,38 +28,50 @@ def digest(value: Any) -> str:
 # Prompts
 # --------------------------------------------------------------------------------------------
 
-_HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _INLINE_WS = re.compile(r"[ \t\f\v]+")
 # A line that starts a new markdown block: list item, heading, quote, table row, fence, rule.
 _BLOCK_START = re.compile(r"^(?:[-*+]\s|\d+[.)]\s|#{1,6}\s|>|\||```|~~~|---|\*\*\*|___)")
+_FENCE = re.compile(r"^(?:```|~~~)")
 
 
 def normalize_prompt_for_fingerprint(text: str) -> str:
     """Reduce a *rendered* prompt to the tokens that can plausibly change model behaviour.
 
-    The composer already strips HTML comments and trailing spaces; this goes further and is
-    only used for change detection (never for what is sent to the model):
+    Input is the prompt exactly as sent to the model (the composer has already removed HTML
+    comments). This goes further and is only used for change detection, never for what is sent:
 
-    * runs of spaces/tabs collapse to one space and lines are stripped;
+    * runs of spaces/tabs collapse to one space and trailing space is dropped;
     * any number of blank lines collapse to one paragraph break;
     * **soft-wrapped lines are re-joined**: reflowing a paragraph at a different column is the
       most common "no-op" prompt edit, and it must not trigger paid evals. Lines that begin a
-      markdown block (``-``, ``1.``, ``#``, ``>``, ``|``, fences) are kept on their own line,
-      so turning a paragraph into a bullet list *is* still a change.
+      markdown block (``-``, ``1.``, ``#``, ``>``, ``|``, fences) are kept on their own line
+      *with their indentation*, so turning a paragraph into a bullet list, or un-nesting a
+      sub-bullet, *is* still a change;
+    * inside fenced code blocks only trailing space is dropped: examples are literal.
 
     Wording, punctuation, casing and list structure all survive, because models are sensitive
-    to all of them.
+    to all of them. HTML comments are deliberately *not* stripped here: anything that survived
+    the composer (e.g. a comment opened in one module and closed in another) reaches the model.
     """
-    text = _HTML_COMMENT.sub("", text).replace("\r\n", "\n").replace("\r", "\n")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     paragraphs: list[list[str]] = [[]]
+    in_fence = False
     for raw in text.split("\n"):
+        if in_fence:
+            paragraphs[-1].append(raw.rstrip())
+            in_fence = not _FENCE.match(raw.strip())
+            continue
         line = _INLINE_WS.sub(" ", raw).strip()
         if not line:
             if paragraphs[-1]:
                 paragraphs.append([])
             continue
         current = paragraphs[-1]
-        if current and not _BLOCK_START.match(line):
+        if _BLOCK_START.match(line):
+            indent = len(raw.expandtabs(4)) - len(raw.expandtabs(4).lstrip())
+            current.append(" " * indent + line)
+            in_fence = bool(_FENCE.match(line))
+        elif current:
             current[-1] = f"{current[-1]} {line}"
         else:
             current.append(line)
@@ -188,16 +200,29 @@ def normalized_yaml(text: str) -> str:
         return "UNPARSEABLE:" + digest(text)
 
 
-_LOCK_PACKAGE = re.compile(
-    r'^\[\[package\]\]\s*\nname\s*=\s*"(?P<name>[^"]+)"\s*\nversion\s*=\s*"(?P<version>[^"]+)"',
-    re.MULTILINE,
-)
+_LOCK_BLOCK = re.compile(r"^\[\[package\]\]\s*$", re.MULTILINE)
+_LOCK_FIELD = re.compile(r'^(name|version|source)\s*=\s*(.+?)\s*$', re.MULTILINE)
 
 
 def lockfile_versions(text: str) -> dict[str, str]:
     """``{package: version}`` from a ``uv.lock``.
 
-    A regex rather than ``tomllib`` keeps this working on Python 3.10; uv always writes
-    ``name`` then ``version`` directly under ``[[package]]``.
+    The version string also carries the ``source`` when it is not a registry (a git revision or a
+    local path can change code without a version bump), and every entry of a package that uv
+    resolved more than once (per-marker forks). A regex rather than ``tomllib`` keeps this
+    working on Python 3.10; only the top-level ``name``/``version``/``source`` keys of each
+    ``[[package]]`` table are read.
     """
-    return {m["name"].lower(): m["version"] for m in _LOCK_PACKAGE.finditer(text)}
+    entries: dict[str, list[str]] = {}
+    for block in _LOCK_BLOCK.split(text)[1:]:
+        block = block.split("\n[", 1)[0]  # stop at the next (sub-)table
+        fields = {m[1]: m[2] for m in _LOCK_FIELD.finditer(block)}
+        name = fields.get("name", "").strip('"').lower()
+        if not name:
+            continue
+        version = fields.get("version", "?").strip('"')
+        source = fields.get("source", "")
+        if source and "registry" not in source:
+            version = f"{version} ({source})"
+        entries.setdefault(name, []).append(version)
+    return {name: " | ".join(sorted(versions)) for name, versions in entries.items()}

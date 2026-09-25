@@ -1,6 +1,6 @@
 # Paid model evals, gated by semantic change-impact detection.
 #
-#   plan ──► brain (matrix, cheap) ──► voice (matrix, expensive; only if brain passed) ──► report
+#   plan ──► brain (matrix, cheap) ──► voice (matrix, expensive; only if brain passed) ──► report ──► comment
 #
 # Gates, cheapest first:
 #   1. `plan` fast path: if no behaviour-relevant file changed (docs, frontend, CI), it skips
@@ -11,6 +11,10 @@
 #      schemas, normalized ASTs, settings defaults, lockfile) and emits the exact suite x tier
 #      matrix. Whitespace/comment/docs-only edits plan nothing.
 #   3. secrets: fork PRs and repos without OPENAI_API_KEY skip paid jobs with a clear note.
+#      Trust model: paid jobs run PR code with OPENAI_API_KEY. GitHub never gives secrets to
+#      `pull_request` runs from forks, so only people with push access (who could edit this
+#      workflow anyway) can spend. Add required reviewers to the `evals` environment to make
+#      every paid run wait for a maintainer's approval.
 #   4. brain must pass before any voice session is paid for.
 #   5. a hard per-job USD budget inside the runner.
 #
@@ -80,10 +84,11 @@ jobs:
       can_spend: ${{ steps.gate.outputs.can_spend }}
       gate_reason: ${{ steps.gate.outputs.reason }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
           fetch-depth: 0 # the detector exports the merge-base tree with `git archive`
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
@@ -123,13 +128,13 @@ jobs:
         run: |
           if [ "$IS_FORK" = "true" ]; then
             echo "can_spend=false" >> "$GITHUB_OUTPUT"
-            echo "reason=PR from a fork: repository secrets are not available, paid evals skipped. A maintainer can run them via workflow_dispatch." >> "$GITHUB_OUTPUT"
+            echo "reason=PR from a fork: repository secrets are not available, paid evals skipped. A maintainer can push the branch to this repository and run them via workflow_dispatch." >> "$GITHUB_OUTPUT"
           else
             echo "can_spend=true" >> "$GITHUB_OUTPUT"
             echo "reason=" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: eval-plan
           path: eval-plan.json
@@ -152,8 +157,10 @@ jobs:
       FINGERPRINTS: ${{ needs.plan.outputs.brain_fingerprints }}
       MAX_COST_USD: ${{ inputs.max_cost_usd || vars.EVALS_MAX_COST_USD || '3' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
@@ -166,7 +173,7 @@ jobs:
       - name: Job summary
         if: always()
         run: cat "$RESULTS_DIR"/*.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: eval-results-brain-${{ matrix.suite }}
@@ -197,18 +204,23 @@ jobs:
       FINGERPRINTS: ${{ needs.plan.outputs.voice_fingerprints }}
       MAX_COST_USD: ${{ inputs.max_cost_usd || vars.EVALS_MAX_COST_USD || '3' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
       - run: uv sync --locked --group evals
       # Synthesized user turns are deterministic per (text, TTS model, voice): cache them.
-      - uses: actions/cache@v4
+      # One cache per suite: matrix jobs sharing a key would race, the first save would win,
+      # and every other suite would get an exact-key hit without its audio (and never save).
+      # PR runs can read caches from the default branch but only write to their own PR scope.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: evals/.cache/tts
-          key: eval-tts-${{ hashFiles('evals/suites/*.yaml') }}
-          restore-keys: eval-tts-
+          key: eval-tts-${{ matrix.suite }}-${{ hashFiles('evals/suites/*.yaml', 'evals/runners/voice.py') }}
+          restore-keys: eval-tts-${{ matrix.suite }}-
       - name: Run voice tier
         run: >-
           uv run python -m evals run --tier voice --suite "$SUITE"
@@ -217,7 +229,7 @@ jobs:
       - name: Job summary
         if: always()
         run: cat "$RESULTS_DIR"/*.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: eval-results-voice-${{ matrix.suite }}
@@ -225,26 +237,28 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+  # Builds the report with PR code, so it holds no write token (default read-only permissions).
+  # `!cancelled()` rather than `always()`: a run cancelled by a newer push must not post a
+  # stale report over the new run's comment.
   report:
     name: Report
     needs: [plan, brain, voice]
-    if: always() && needs.plan.result == 'success'
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    permissions:
-      contents: read
-      pull-requests: write # sticky PR comment only
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
       - run: uv sync --locked
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: eval-plan
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: eval-results-*
           path: ${{ env.RESULTS_DIR }}
@@ -266,27 +280,53 @@ jobs:
           uv run python -m evals report --results-dir "$RESULTS_DIR" --plan eval-plan.json \
             --output eval-report.md "${notes[@]}"
           cat eval-report.md >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: eval-report
           path: eval-report.md
           retention-days: 30
-      - name: Sticky PR comment
-        # Fork PRs get a read-only token; their summary lives in the job summary instead.
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
-        uses: actions/github-script@v7
+
+  # The only job with a write token. It runs no repository code: it downloads the report
+  # built by `report` and posts it as-is; PR content can only shape the comment text.
+  comment:
+    name: Sticky PR comment
+    needs: report
+    # Fork PRs get a read-only token; their report lives in the job summary instead.
+    if: >-
+      !cancelled()
+      && needs.report.result == 'success'
+      && github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write # create/update the sticky comment
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: eval-report
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const fs = require('fs');
             const marker = '<!-- gpt-live-evals-report -->';
-            const body = fs.readFileSync('eval-report.md', 'utf8');
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            let body = fs.readFileSync('eval-report.md', 'utf8');
+            // GitHub rejects comment bodies over 65,536 characters.
+            const limit = 60000;
+            if (body.length > limit) {
+              body = `${body.slice(0, limit)}\n\n… truncated; full report in the [run summary](${runUrl}).\n`;
+            }
+            if (!body.startsWith(marker)) body = `${marker}\n${body}`;
             const { owner, repo } = context.repo;
             const issue_number = context.payload.pull_request.number;
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner, repo, issue_number, per_page: 100,
             });
+            // Only ever edit our own comment: match the Actions bot *and* the marker, so a
+            // human or another app quoting the marker is never overwritten.
             const mine = comments.find(
-              (c) => c.user?.type === 'Bot' && c.body?.includes(marker),
+              (c) => c.user?.login === 'github-actions[bot]' && c.body?.startsWith(marker),
             );
             if (mine) {
               await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });

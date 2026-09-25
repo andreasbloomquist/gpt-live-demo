@@ -43,7 +43,7 @@ class BrainRunner:
         self._settings: Any = None
         self._options: dict[str, Any] = {}
         self._schemas: list[dict[str, Any]] = []
-        self._function_tools: dict[str, Any] = {}
+        self._tool_context: Any = None
 
     async def setup(self, suite: Suite) -> dict[str, Any]:
         from livekit.agents import llm
@@ -53,9 +53,9 @@ class BrainRunner:
         tools = agent_bridge.resolve_tools(bundle, self._settings)
         self._options = agent_bridge.responses_options(self._settings, bundle)
         self._schemas = tools_to_responses_schemas(tools)
-        self._function_tools = {
-            t.info.name: t for t in tools if isinstance(t, (llm.FunctionTool, llm.RawFunctionTool))
-        }
+        self._tool_context = llm.ToolContext(
+            [t for t in tools if isinstance(t, (llm.FunctionTool, llm.RawFunctionTool))]
+        )
         return {
             "backend_model": self._options.get("model"),
             "reasoning": self._options.get("reasoning"),
@@ -91,6 +91,7 @@ class BrainRunner:
         for turn in case.user_turns:
             transcript.messages.append(("user", turn))
             pending: list[dict[str, Any]] = [{"role": "user", "content": turn}]
+            loop_limit_hit = False
             for _step in range(MAX_STEPS_PER_TURN):
                 t0 = time.monotonic()
                 # Instructions are re-sent every call: previous_response_id does not carry them.
@@ -111,7 +112,9 @@ class BrainRunner:
                         transcript.tool_calls.append(ToolCall("web_search", {"query": query}))
                         cost += WEB_SEARCH_CALL_USD
                     elif item.type == "function_call":
-                        output, is_error = await self._execute(item.name, item.arguments)
+                        output, is_error = await self._execute(
+                            item.name, item.arguments, item.call_id
+                        )
                         args = _safe_json(item.arguments)
                         transcript.tool_calls.append(ToolCall(item.name, args, output, is_error))
                         pending.append(
@@ -126,6 +129,11 @@ class BrainRunner:
                     break
             else:
                 transcript.messages.append(("assistant", "[tool loop limit reached]"))
+                loop_limit_hit = True
+            if loop_limit_hit:
+                # The last response still has unanswered function calls, so the API would
+                # reject chaining another user turn onto it: end the conversation here.
+                break
 
         return Conversation(
             transcript=transcript,
@@ -135,23 +143,18 @@ class BrainRunner:
             meta={"response_id": previous_id},
         )
 
-    async def _execute(self, name: str, arguments: str) -> tuple[str, bool]:
-        """Run a function tool the way LiveKit would: validate/coerce args with LiveKit's own
-        ``prepare_function_arguments`` and surface ``ToolError`` text to the model."""
-        from livekit.agents import ToolError
-        from livekit.agents.llm.utils import prepare_function_arguments
+    async def _execute(self, name: str, arguments: str, call_id: str = "eval") -> tuple[str, bool]:
+        """Run a function tool through LiveKit's own ``execute_function_call``: the same argument
+        parsing/validation (``prepare_function_arguments``) and the same output text for
+        results, ``ToolError`` messages, unknown tools and unexpected exceptions ("An internal
+        error occurred") that LiveKit reports to the model in production."""
+        from livekit.agents import llm
 
-        tool = self._function_tools.get(name)
-        if tool is None:
-            return f"Unknown function: {name}", True
-        try:
-            args, kwargs = prepare_function_arguments(fnc=tool, json_arguments=arguments)
-            output = await tool(*args, **kwargs)
-        except ToolError as exc:
-            return exc.message, True
-        except Exception as exc:
-            return f"error: {type(exc).__name__}", True
-        return output if isinstance(output, str) else json.dumps(output, default=str), False
+        result = await llm.utils.execute_function_call(
+            llm.FunctionToolCall(name=name, arguments=arguments, call_id=call_id),
+            self._tool_context,
+        )
+        return result.fnc_call_out.output, result.fnc_call_out.is_error
 
     async def aclose(self) -> None:
         return None

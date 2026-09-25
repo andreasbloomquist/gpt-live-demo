@@ -101,6 +101,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 
 /* Transcript */
 .transcript {
+  scroll-behavior: smooth;
   max-height: 280px;
   overflow-y: auto;
   border-top: 1px solid var(--border);

@@ -85,16 +85,23 @@ async def run_suite(
             if options.early_stop and (n - failures) / n < suite.pass_threshold:
                 logger.info("%s/%s: threshold unreachable, stopping early", suite.name, case.id)
                 break
-            try:
-                reserved = budget.reserve(runner.estimate_trial_usd(suite, case))
-            except BudgetExceeded as exc:
-                budget_error.append(str(exc))
-                break
+            # Reserve only once a concurrency slot is free: a trial queued behind the semaphore
+            # is not in flight, and holding budget for it would stop the run spuriously.
             async with semaphore:
+                if budget_error:
+                    break
+                try:
+                    reserved = budget.reserve(runner.estimate_trial_usd(suite, case))
+                except BudgetExceeded as exc:
+                    budget_error.append(str(exc))
+                    break
                 trial_result = await _run_trial(
                     runner, suite, case, trial, judge_client, today, options
                 )
-            budget.settle(reserved, trial_result.cost_usd)
+            # A crashed conversation reports no usage although it may have spent money before
+            # failing; charge its reservation so the ceiling still holds.
+            spent = reserved if trial_result.crashed else trial_result.cost_usd
+            budget.settle(reserved, spent)
             case_result.trials.append(trial_result)
             logger.info(
                 "%s/%s/%s trial %d: %s%s",
@@ -133,7 +140,9 @@ async def _run_trial(
         conv = await runner.converse(suite, case, trial)
     except Exception as exc:  # a crashed trial is a failed trial, not a crashed run
         logger.exception("trial crashed")
-        return TrialResult(trial=trial, passed=False, error=f"{type(exc).__name__}: {exc}")
+        return TrialResult(
+            trial=trial, passed=False, error=f"{type(exc).__name__}: {exc}", crashed=True
+        )
 
     checks = check_expectations(case.expect, conv.transcript, today=today)
     result = TrialResult(

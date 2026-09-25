@@ -26,13 +26,15 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: read # paths-filter lists the PR's changed files via the API
     outputs:
       python: ${{ github.event_name == 'push' || steps.filter.outputs.python == 'true' }}
       frontend: ${{ github.event_name == 'push' || steps.filter.outputs.frontend == 'true' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      # On pull_request the filter reads the changed files from the API (no checkout needed).
+      # Pushes to main run everything, so the filter is skipped there.
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
+        if: github.event_name == 'pull_request'
         id: filter
         with:
           filters: |
@@ -54,8 +56,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
@@ -70,8 +74,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
@@ -86,8 +92,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
@@ -133,29 +141,15 @@ jobs:
       LIVEKIT_API_SECRET: placeholder
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
-      - uses: actions/checkout@v4
-      - name: Detect package manager from lockfile
-        id: pm
-        run: |
-          if [ -f pnpm-lock.yaml ]; then
-            echo "manager=pnpm" >> "$GITHUB_OUTPUT"
-            echo "install=pnpm install --frozen-lockfile" >> "$GITHUB_OUTPUT"
-          elif [ -f package-lock.json ]; then
-            echo "manager=npm" >> "$GITHUB_OUTPUT"
-            echo "install=npm ci" >> "$GITHUB_OUTPUT"
-          else
-            echo "manager=npm" >> "$GITHUB_OUTPUT"
-            echo "install=npm install" >> "$GITHUB_OUTPUT"
-          fi
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-          cache: ${{ hashFiles('frontend/package-lock.json') != '' && 'npm' || '' }}
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Enable pnpm via corepack
-        if: steps.pm.outputs.manager == 'pnpm'
-        run: corepack enable pnpm
-      - run: ${{ steps.pm.outputs.install }}
-      - run: ${{ steps.pm.outputs.manager }} run --if-present lint
-      - run: ${{ steps.pm.outputs.manager }} run --if-present typecheck
-      - run: ${{ steps.pm.outputs.manager }} run build
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build

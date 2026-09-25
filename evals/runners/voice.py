@@ -36,6 +36,7 @@ import asyncio
 import contextlib
 import difflib
 import hashlib
+import json
 import logging
 import os
 import time
@@ -92,32 +93,41 @@ class TTSCache:
     variance, so a pass-rate change between two commits is about the agent, not the TTS.
     """
 
+    INSTRUCTIONS = "Speak naturally, like a person calling a restaurant concierge."
+
     def __init__(self, client: Any, *, model: str = TTS_MODEL, voice: str = TTS_VOICE) -> None:
         self.client = client
         self.model = model
         self.voice = voice
         self.cost_usd = 0.0
+        self._locks: dict[Path, asyncio.Lock] = {}
 
     def _path(self, text: str) -> Path:
-        key = hashlib.sha256(f"{self.model}|{self.voice}|{text}".encode()).hexdigest()[:24]
-        return TTS_CACHE_DIR / f"{key}.pcm"
+        # Everything that changes the audio is in the key (hex digest: no path traversal).
+        material = f"{self.model}|{self.voice}|{self.INSTRUCTIONS}|{text}"
+        return TTS_CACHE_DIR / f"{hashlib.sha256(material.encode()).hexdigest()[:24]}.pcm"
 
     async def synthesize(self, text: str) -> bytes:
         path = self._path(text)
-        if path.is_file():
-            return path.read_bytes()
-        response = await self.client.audio.speech.create(
-            model=self.model,
-            voice=self.voice,
-            input=text,
-            response_format="pcm",
-            instructions="Speak naturally, like a person calling a restaurant concierge.",
-        )
-        pcm = response.content
-        self.cost_usd += len(text) * TTS_USD_PER_1M_CHARS / 1_000_000
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(pcm)
-        return pcm
+        # Concurrent trials share user turns: synthesize (and pay for) each clip once.
+        async with self._locks.setdefault(path, asyncio.Lock()):
+            if path.is_file():
+                return path.read_bytes()
+            response = await self.client.audio.speech.create(
+                model=self.model,
+                voice=self.voice,
+                input=text,
+                response_format="pcm",
+                instructions=self.INSTRUCTIONS,
+            )
+            pcm = response.content
+            self.cost_usd += len(text) * TTS_USD_PER_1M_CHARS / 1_000_000
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # Write-then-rename so an interrupted run never leaves a truncated clip cached.
+            tmp = path.with_suffix(f".{os.getpid()}.tmp")
+            tmp.write_bytes(pcm)
+            tmp.replace(path)
+            return pcm
 
 
 def build_microphone() -> Any:
@@ -175,49 +185,65 @@ def build_speaker() -> Any:
     base = _make_audio_output_base()
 
     class PacedSpeaker(base):  # type: ignore[misc, valid-type]
+        """Plays each segment in real time from its first frame. A segment stays *playing*
+        after ``flush()`` until its audio has run out, and ``clear_buffer()`` interrupts it at
+        any point before that, exactly like a room or console sink. (LiveKit always calls
+        ``flush()`` before ``clear_buffer()`` when it interrupts a reply.)"""
+
         def __init__(self) -> None:
             super().__init__(
                 label="evals.paced_speaker",
                 capabilities=io.AudioOutputCapabilities(pause=False),
                 sample_rate=None,
             )
-            self._segment_started: float | None = None
-            self._segment_s = 0.0
+            self._started_at: float | None = None  # monotonic start of the current segment
+            self._captured_s = 0.0
+            self._finish_timer: asyncio.TimerHandle | None = None  # set once flushed
+            self._idle = asyncio.Event()
+            self._idle.set()
             self.audio_starts: list[float] = []
             self.audio_seconds = 0.0
 
         @property
         def playing(self) -> bool:
-            return self._segment_started is not None
+            return self._started_at is not None
 
         async def capture_frame(self, frame: Any) -> None:
+            if self._finish_timer is not None:
+                # A speaker plays segments in order: the next starts when this one has played.
+                await self._idle.wait()
             await super().capture_frame(frame)
-            if self._segment_started is None:
-                self._segment_started = time.monotonic()
-                self.audio_starts.append(self._segment_started)
+            if self._started_at is None:
+                self._started_at = time.monotonic()
+                self._idle.clear()
+                self.audio_starts.append(self._started_at)
                 self.on_playback_started(created_at=time.time())
-            self._segment_s += frame.duration
+            self._captured_s += frame.duration
             self.audio_seconds += frame.duration
 
         def flush(self) -> None:
             super().flush()
-            if self._segment_started is None:
+            if self._started_at is None or self._finish_timer is not None:
                 return
-            duration = self._segment_s
-            remaining = max(0.0, self._segment_started + duration - time.monotonic())
-            self._segment_started, self._segment_s = None, 0.0
-            asyncio.get_running_loop().call_later(remaining, self._finish, duration)
-
-        def _finish(self, duration: float) -> None:
-            with contextlib.suppress(Exception):
-                self.on_playback_finished(playback_position=duration, interrupted=False)
+            remaining = max(0.0, self._started_at + self._captured_s - time.monotonic())
+            self._finish_timer = asyncio.get_running_loop().call_later(
+                remaining, self._end_segment, False
+            )
 
         def clear_buffer(self) -> None:
-            if self._segment_started is None:
+            self._end_segment(True)
+
+        def _end_segment(self, interrupted: bool) -> None:
+            if self._started_at is None:
                 return
-            played = min(time.monotonic() - self._segment_started, self._segment_s)
-            self._segment_started, self._segment_s = None, 0.0
-            self.on_playback_finished(playback_position=played, interrupted=True)
+            played = self._captured_s
+            if interrupted:
+                played = min(max(0.0, time.monotonic() - self._started_at), played)
+            if self._finish_timer is not None:
+                self._finish_timer.cancel()
+            self._started_at, self._captured_s, self._finish_timer = None, 0.0, None
+            self._idle.set()
+            self.on_playback_finished(playback_position=played, interrupted=interrupted)
 
     return PacedSpeaker()
 
@@ -234,6 +260,8 @@ class _Tracker:
     last_activity: float = 0.0
     agent_state: str = "initializing"
     assistant_items: int = 0
+    closed: str | None = None
+    """Why the session closed on its own (e.g. a GPT-Live error), if it did."""
 
     def attach(self, session: Any) -> None:
         self.last_activity = time.monotonic()
@@ -250,6 +278,11 @@ class _Tracker:
                 self.assistant_items += 1
             touch()
 
+        def on_close(ev: Any) -> None:
+            error = getattr(ev, "error", None)
+            self.closed = f"{ev.reason}" + (f": {error}" if error else "")
+
+        session.on("close", on_close)
         session.on("agent_state_changed", on_state)
         session.on("conversation_item_added", on_item)
         session.on("function_tools_executed", touch)
@@ -257,13 +290,20 @@ class _Tracker:
 
     async def wait_settled(self, speaker: Any, *, since_items: int, timeout: float) -> bool:
         deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
+        while time.monotonic() < deadline and self.closed is None:
             await asyncio.sleep(0.2)
             replied = self.assistant_items > since_items
             quiet = time.monotonic() - self.last_activity >= SETTLE_S
             if replied and quiet and not speaker.playing and self.agent_state != "speaking":
                 return True
         return False
+
+
+def _raise_if_closed(tracker: _Tracker) -> None:
+    """A session that closed mid-conversation (GPT-Live error, disconnect) is a crashed trial
+    with a clear reason, not a slow timeout followed by grading an empty transcript."""
+    if tracker.closed is not None:
+        raise RuntimeError(f"GPT-Live session closed: {tracker.closed}")
 
 
 def _transcript_from_history(history: Any, unobservable: frozenset[str]) -> Transcript:
@@ -278,8 +318,6 @@ def _transcript_from_history(history: Any, unobservable: frozenset[str]) -> Tran
             if text:
                 transcript.messages.append((item.role, text))
         elif item.type == "function_call":
-            import json
-
             try:
                 args = json.loads(item.arguments or "{}")
             except json.JSONDecodeError:
@@ -357,7 +395,7 @@ class VoiceRunner:
         # A fresh bundle per trial: runtime variables (today's date) exactly as in production.
         bundle = agent_bridge.compose_bundle(suite.profile, settings)
         tools = agent_bridge.resolve_tools(bundle, settings)
-        session = AgentSession(llm=build_gpt_live_model(settings, bundle))
+        session: AgentSession[None] = AgentSession(llm=build_gpt_live_model(settings, bundle))
         speaker = build_speaker()
         session.output.audio = speaker
         mic = build_microphone() if self.input_mode == "audio" else None
@@ -375,6 +413,7 @@ class VoiceRunner:
             # Let the greeting (VoiceAgent.on_enter) finish so turn 1 isn't barge-in.
             await tracker.wait_settled(speaker, since_items=0, timeout=TURN_TIMEOUT_S)
             for turn in case.user_turns:
+                _raise_if_closed(tracker)
                 before_items = tracker.assistant_items
                 if mic is not None:
                     pcm = await self.tts.synthesize(turn)
@@ -391,6 +430,7 @@ class VoiceRunner:
                 starts = [s for s in speaker.audio_starts if s >= spoke_at - 0.5]
                 if starts:
                     latencies.append(round(max(0.0, starts[0] - spoke_at), 3))
+            _raise_if_closed(tracker)
             history = session.history.copy()
             usage = session.usage
         finally:
