@@ -201,7 +201,7 @@ def normalized_yaml(text: str) -> str:
 
 
 _LOCK_BLOCK = re.compile(r"^\[\[package\]\]\s*$", re.MULTILINE)
-_LOCK_FIELD = re.compile(r'^(name|version|source)\s*=\s*(.+?)\s*$', re.MULTILINE)
+_LOCK_FIELD = re.compile(r"^(name|version|source)\s*=\s*(.+?)\s*$", re.MULTILINE)
 
 
 def lockfile_versions(text: str) -> dict[str, str]:

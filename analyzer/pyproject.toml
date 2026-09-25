@@ -10,7 +10,8 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
-    "openai>=1.60",
+    "openai>=3.0",
+    "pyyaml>=6.0",
 ]
 
 [dependency-groups]

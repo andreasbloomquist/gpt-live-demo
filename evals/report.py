@@ -87,6 +87,14 @@ def _failure(trial: dict[str, Any]) -> str:
     return "; ".join(parts) or "failed"
 
 
+def _md_code(text: str) -> str:
+    """Model output (judge reasons, matched text, tool arguments) can carry web content: render it
+    as an inline code span so it cannot inject links, images, mentions or HTML into the PR
+    comment."""
+    flat = " ".join(text.replace("`", "'").split())
+    return f"`{flat}`" if flat else ""
+
+
 def _median(values: list[float]) -> str:
     return f"{statistics.median(values):.2f}s" if values else "—"
 
@@ -124,10 +132,12 @@ def results_markdown(results: list[dict[str, Any]]) -> str:
                 why = _failure(first_fail) if first_fail else "no trials ran"
                 failures.append(
                     f"- **{data['tier']}/{data['suite']}/{case['case_id']}** "
-                    f"({case['pass_rate']:.0%}): {why[:300]}"
+                    f"({case['pass_rate']:.0%}): {_md_code(why[:300])}"
                 )
         if data["status_detail"]:
-            failures.append(f"- **{data['tier']}/{data['suite']}**: {data['status_detail']}")
+            failures.append(
+                f"- **{data['tier']}/{data['suite']}**: {_md_code(data['status_detail'])}"
+            )
     total = sum(d["cost_usd"] for d in results)
     out = "\n".join(lines) + f"\n\nTotal eval spend: **${total:.3f}**\n"
     if failures:

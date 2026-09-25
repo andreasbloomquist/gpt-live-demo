@@ -25,6 +25,8 @@ from evals.paths import RESULTS_DIR, SUITE_SCHEMA_PATH, SUITES_DIR
 from evals.schema import Suite, SuiteLoadError, Tier, load_suites, suite_json_schema
 
 EXIT_OK, EXIT_FAILED, EXIT_CONFIG, EXIT_BUDGET = 0, 1, 2, 3
+OPENAI_TIMEOUT_S = 60.0
+OPENAI_MAX_RETRIES = 3
 
 
 def _suite_names(values: list[str] | None) -> list[str] | None:
@@ -161,7 +163,13 @@ async def _run(tier: Tier, suites: dict[str, Suite], args: argparse.Namespace) -
     from evals.runners.harness import HarnessOptions, TierRunner, run_suite
 
     settings = agent_bridge.load_settings()
-    client = AsyncOpenAI(api_key=agent_bridge.openai_api_key(settings))
+    # Serves the backend, TTS and judge calls. The SDK default (600 s per attempt) would let one
+    # stuck request eat most of a CI job's timeout.
+    client = AsyncOpenAI(
+        api_key=agent_bridge.openai_api_key(settings),
+        timeout=OPENAI_TIMEOUT_S,
+        max_retries=OPENAI_MAX_RETRIES,
+    )
     budget = Budget(max_usd=args.max_cost_usd)
     options = HarnessOptions(
         trials_override=args.trials, early_stop=not args.no_early_stop, judge=not args.no_judge
@@ -171,32 +179,35 @@ async def _run(tier: Tier, suites: dict[str, Suite], args: argparse.Namespace) -
 
     exit_code = EXIT_OK
     rendered: list[dict[str, Any]] = []
-    for suite in suites.values():
-        if tier not in suite.tiers or not suite.cases_for(tier):
-            continue
-        runner: TierRunner
-        if tier == "brain":
-            from evals.runners.brain import BrainRunner
+    try:
+        for suite in suites.values():
+            if tier not in suite.tiers or not suite.cases_for(tier):
+                continue
+            runner: TierRunner
+            if tier == "brain":
+                from evals.runners.brain import BrainRunner
 
-            runner = BrainRunner(client=client, concurrency=args.concurrency or 4)
-        else:
-            from evals.runners.voice import VoiceRunner
+                runner = BrainRunner(client=client, concurrency=args.concurrency or 4)
+            else:
+                from evals.runners.voice import VoiceRunner
 
-            runner = VoiceRunner(
-                client=client, concurrency=args.concurrency or 2, input_mode=args.voice_input
+                runner = VoiceRunner(
+                    client=client, concurrency=args.concurrency or 2, input_mode=args.voice_input
+                )
+            result = await run_suite(
+                runner, suite, judge_client=client, budget=budget, today=today, options=options
             )
-        result = await run_suite(
-            runner, suite, judge_client=client, budget=budget, today=today, options=options
-        )
-        result.fingerprint = fingerprints.get(suite.name)
-        paths = write_results(result, args.results_dir)
-        rendered.append(result.to_dict())
-        print(f"{tier}/{suite.name}: {'PASS' if result.passed else 'FAIL'} → {paths['json']}")
-        if result.status == "budget_exceeded":
-            exit_code = EXIT_BUDGET
-            break
-        if not result.passed:
-            exit_code = EXIT_FAILED
+            result.fingerprint = fingerprints.get(suite.name)
+            paths = write_results(result, args.results_dir)
+            rendered.append(result.to_dict())
+            print(f"{tier}/{suite.name}: {'PASS' if result.passed else 'FAIL'} → {paths['json']}")
+            if result.status == "budget_exceeded":
+                exit_code = EXIT_BUDGET
+                break
+            if not result.passed:
+                exit_code = EXIT_FAILED
+    finally:
+        await client.close()
     print(results_markdown(rendered))
     print(f"total spend ≈ ${budget.spent_usd:.3f}")
     return exit_code

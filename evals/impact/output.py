@@ -28,7 +28,15 @@ def to_text(plan: Plan) -> str:
 
 
 def _md_escape(text: str) -> str:
-    return text.replace("|", "\\|").replace("\n", " ")
+    """Reasons embed PR-controlled text (setting defaults, paths, error messages) in a table cell
+    of a bot-posted comment: keep it on one line, inside the cell, and free of raw HTML."""
+    return (
+        text.replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("|", "\\|")
+        .replace("\r", " ")
+        .replace("\n", " ")
+    )
 
 
 def to_markdown(plan: Plan) -> str:

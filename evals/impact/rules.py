@@ -78,9 +78,7 @@ RUNNER_CODE: dict[str, tuple[str, ...]] = {
 # the OpenTable provider, which evals replace with the deterministic mock).
 # Credential patterns are anchored to whole name segments: an unanchored ``token`` would also
 # swallow behavioural settings such as ``gpt_live_backend_max_output_tokens``.
-CONFIG_IGNORED = re.compile(
-    r"(^|_)(api_key|secret|token)$|_url$|^log_level$|^livekit_|^opentable_"
-)
+CONFIG_IGNORED = re.compile(r"(^|_)(api_key|secret|token)$|_url$|^log_level$|^livekit_|^opentable_")
 # Settings consumed only by the GPT-Live voice model.
 CONFIG_VOICE_ONLY = re.compile(r"^gpt_live_(model|voice)$")
 

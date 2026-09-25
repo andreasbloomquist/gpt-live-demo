@@ -18,6 +18,7 @@ Prints a single JSON object to stdout. Never touches the network.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib
 import importlib.util
 import json
@@ -129,15 +130,19 @@ def main(argv: list[str] | None = None) -> int:
     # Order matters: the tree's agent package must win over any installed/editable copy.
     sys.path[:0] = [str(tree / "agent"), str(args.evals_root.resolve())]
 
+    # Stdout is reserved for the one JSON document: a stray ``print`` in the tree's import-time
+    # code would otherwise corrupt it and force a full (paid) eval run on every PR.
+    real_stdout = sys.stdout
     try:
-        out = probe(tree)
+        with contextlib.redirect_stdout(sys.stderr):
+            out = probe(tree)
     except BaseException as exc:
         out = {
             "ok": False,
             "error": f"{type(exc).__name__}: {exc}",
             "traceback": traceback.format_exc(limit=5),
         }
-    json.dump(out, sys.stdout, sort_keys=True)
+    json.dump(out, real_stdout, sort_keys=True, default=str)
     return 0
 
 

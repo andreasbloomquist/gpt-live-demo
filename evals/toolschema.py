@@ -37,7 +37,13 @@ def tool_to_responses_schema(tool: Any) -> dict[str, Any] | None:
 
 
 def tools_to_responses_schemas(tools: Iterable[Any]) -> list[dict[str, Any]]:
-    return [s for s in (tool_to_responses_schema(t) for t in tools) if s is not None]
+    """Schemas in the order GPT-Live sends them: like ``_build_delegation_tools`` this goes
+    through ``ToolContext(...).flatten()``, which expands ``Toolset``s and puts function tools
+    before provider tools (and rejects duplicate function names, as a session would)."""
+    from livekit.agents import llm
+
+    flat = llm.ToolContext(list(tools)).flatten()
+    return [s for s in (tool_to_responses_schema(t) for t in flat) if s is not None]
 
 
 def schema_tool_name(schema: dict[str, Any]) -> str:

@@ -25,7 +25,9 @@ def repo_root(start: Path) -> Path:
 
 
 def rev_parse(repo: Path, ref: str) -> str:
-    return git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}").strip()
+    if ref.startswith("-"):  # would be parsed as an option, not a revision
+        raise GitError(f"invalid ref {ref!r}")
+    return git(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}").strip()
 
 
 def merge_base(repo: Path, a: str, b: str) -> str:
@@ -38,24 +40,42 @@ def export_tree(repo: Path, ref: str, dest: Path) -> Path:
     """Materialise ``ref`` into ``dest`` (tracked files only, no ``.git``)."""
     dest.mkdir(parents=True, exist_ok=True)
     proc = subprocess.Popen(
-        ["git", "archive", "--format=tar", ref], cwd=repo, stdout=subprocess.PIPE
+        ["git", "archive", "--format=tar", ref],
+        cwd=repo,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
-    assert proc.stdout is not None
-    with tarfile.open(fileobj=proc.stdout, mode="r|") as tar:
-        if hasattr(tarfile, "data_filter"):
-            tar.extractall(dest, filter="data")
-        else:  # Python < 3.11.4
-            tar.extractall(dest)  # trusted input: our own repository
-    if proc.wait() != 0:
-        raise GitError(f"git archive {ref} failed")
+    assert proc.stdout is not None and proc.stderr is not None
+    try:
+        with tarfile.open(fileobj=proc.stdout, mode="r|") as tar:
+            if hasattr(tarfile, "data_filter"):
+                tar.extractall(dest, filter="data")
+            else:
+                # Python < 3.11.4 has no extraction filters. The tree is PR-controlled, but
+                # GitHub fscks pushed trees (no "..", ".git" or absolute entries), and a tree
+                # cannot hold both a symlink ``x`` and a file ``x/y`` to write through it.
+                tar.extractall(dest)
+    except tarfile.TarError as exc:
+        proc.kill()
+        raise GitError(f"git archive {ref} failed: {proc.stderr.read().decode().strip()}") from exc
+    finally:
+        proc.stdout.close()
+        returncode = proc.wait()
+    if returncode != 0:
+        raise GitError(f"git archive {ref} failed: {proc.stderr.read().decode().strip()}")
+    proc.stderr.close()
     return dest
 
 
 def changed_files(repo: Path, base: str, head: str | None) -> list[str]:
-    """Files differing between ``base`` and ``head`` (or the working tree, incl. untracked)."""
+    """Files differing between ``base`` and ``head`` (or the working tree, incl. untracked).
+
+    ``-z`` matters: without it git C-quotes unusual paths (``"agent/caf\\303\\251.py"``), and a
+    quoted path no longer starts with ``agent/``, so the fast path would call it irrelevant.
+    """
     if head is not None:
-        out = git(repo, "diff", "--name-only", "--no-renames", base, head)
+        out = git(repo, "diff", "-z", "--name-only", "--no-renames", base, head)
     else:
-        out = git(repo, "diff", "--name-only", "--no-renames", base)
-        out += git(repo, "ls-files", "--others", "--exclude-standard")
-    return sorted({line for line in out.splitlines() if line.strip()})
+        out = git(repo, "diff", "-z", "--name-only", "--no-renames", base)
+        out += git(repo, "ls-files", "-z", "--others", "--exclude-standard")
+    return sorted({path for path in out.split("\0") if path})

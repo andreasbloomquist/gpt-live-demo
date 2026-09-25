@@ -24,8 +24,9 @@ from pathlib import Path
 
 from evals.impact import gitutil, output
 from evals.impact.planner import Overrides, Plan, fast_path_plan, make_plan
-from evals.impact.snapshot import build_snapshot, load_suite_infos, run_probe
+from evals.impact.snapshot import SuiteInfo, build_snapshot, load_suite_infos, run_probe
 from evals.paths import REPO_ROOT
+from evals.schema import TIERS
 
 FULL_LABEL = "evals:full"
 SKIP_LABEL = "evals:skip"
@@ -65,6 +66,21 @@ def resolve_overrides(args: argparse.Namespace) -> Overrides:
     )
 
 
+class PlanError(ValueError):
+    """The request cannot be planned (bad ref, unknown suite/tier filter)."""
+
+
+def check_filters(overrides: Overrides, suites: dict[str, SuiteInfo]) -> None:
+    """A typo in ``--suites``/``--tiers`` (or a workflow input) must fail, not plan nothing and
+    report green."""
+    unknown_suites = sorted((overrides.only_suites or set()) - set(suites))
+    if unknown_suites:
+        raise PlanError(f"unknown suite(s) {unknown_suites}; available: {sorted(suites)}")
+    unknown_tiers = sorted((overrides.only_tiers or set()) - set(TIERS))
+    if unknown_tiers:
+        raise PlanError(f"unknown tier(s) {unknown_tiers}; available: {list(TIERS)}")
+
+
 def build_plan(
     repo: Path,
     base: str,
@@ -84,9 +100,11 @@ def build_plan(
     changed = gitutil.changed_files(repo, base_sha, head_sha if head else None)
     with tempfile.TemporaryDirectory(prefix="evals-impact-") as tmp:
         head_tree = gitutil.export_tree(repo, head_sha, Path(tmp) / "head") if head else repo
+        head_suites = load_suite_infos(head_tree)
+        check_filters(overrides, head_suites)
         if fast_path:
             quick = fast_path_plan(
-                load_suite_infos(head_tree),
+                head_suites,
                 base_ref=base_sha,
                 head_ref=head_sha,
                 changed_files=changed,
@@ -201,4 +219,8 @@ def main(argv: list[str] | None = None) -> int:
     q.set_defaults(func=_cmd_probe)
 
     args = parser.parse_args(argv)
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except (PlanError, gitutil.GitError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
