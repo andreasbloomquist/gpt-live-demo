@@ -170,13 +170,12 @@
 /* ------------------------------------------------------------- metrics */
 .metrics {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   margin: 0;
 }
+@media (max-width: 760px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .metric { padding: 18px 20px; }
-.metricWide { grid-column: span 2; }
-@media (max-width: 400px) { .metricWide { grid-column: auto; } }
 .metric dt { font-size: 0.8125rem; font-weight: 600; color: var(--text-2); letter-spacing: -0.005em; }
 .metric dd { margin: 8px 0 0; display: flex; flex-direction: column; gap: 4px; }
 .metricValue {
@@ -202,8 +201,24 @@
 /* ----------------------------------------------------------- sparkline */
 .sparkCard { padding: 20px 20px 14px; }
 .spark { margin: 0; }
-.spark svg { display: block; width: 100%; height: auto; overflow: visible; }
-.sparkZero { stroke: var(--hairline-strong); stroke-dasharray: 4 5; vector-effect: non-scaling-stroke; }
+.sparkPlot { position: relative; padding-left: 76px; }
+.sparkLabels { margin: 0; padding: 0; list-style: none; }
+.sparkLabels li {
+  position: absolute;
+  left: 0;
+  transform: translateY(-50%);
+  font-size: 0.75rem;
+  color: var(--text-2);
+  letter-spacing: 0;
+}
+.sparkArea { position: relative; height: 150px; }
+@media (max-width: 640px) {
+  .sparkArea { height: 120px; }
+  .sparkPlot { padding-left: 68px; }
+}
+.sparkArea svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.sparkGrid { stroke: var(--hairline); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.sparkGrid[data-zero] { stroke: var(--hairline-strong); stroke-dasharray: 4 5; }
 .sparkLine {
   fill: none;
   stroke: var(--accent);
@@ -212,17 +227,28 @@
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
 }
-.sparkDot { fill: var(--surface); stroke: var(--text-2); stroke-width: 2.5; transition: r var(--dur) var(--ease); }
-.sparkDot[data-tone="pos"] { stroke: var(--green); }
-.sparkDot[data-tone="neg"] { stroke: var(--red); }
-.spark a:hover .sparkDot, .spark a:focus-visible .sparkDot { r: 7; }
+.sparkDot {
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  margin: -6.5px 0 0 -6.5px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 3px solid var(--text-2);
+  transition: transform var(--dur) var(--ease);
+}
+.sparkDot[data-tone="pos"] { border-color: var(--green); }
+.sparkDot[data-tone="neg"] { border-color: var(--red); }
+.sparkDot:hover, .sparkDot:focus-visible { transform: scale(1.35); border-radius: 50%; }
 .sparkAxis {
   display: flex;
+  padding-left: 76px;
   justify-content: space-between;
   margin-top: 8px;
   font-size: 0.75rem;
   color: var(--text-2);
 }
+@media (max-width: 640px) { .sparkAxis { padding-left: 68px; } }
 
 /* ---------------------------------------------------------- transcript */
 .legend {

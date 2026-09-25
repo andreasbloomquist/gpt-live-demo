@@ -66,7 +66,7 @@ DETERMINISTIC_FLAG_TYPES = frozenset({"tool_failure", "long_silence"})
 
 _QUOTE_CHARS = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"'})
 # Models like to wrap quotes in quotation marks or add ellipses; none of that is evidence.
-_QUOTE_WRAPPING = " \t\n\"'.,;:!?…"
+_QUOTE_WRAPPING = " \t\n\"'.,;:!?\u2026\u201c\u201d\u2018\u2019"
 
 
 def _clip(text: str, limit: int) -> str:

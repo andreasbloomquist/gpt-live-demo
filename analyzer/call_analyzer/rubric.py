@@ -80,7 +80,9 @@ class Rubric(BaseModel):
             weight_sum += spec.weight
         if weight_sum == 0:
             return None
-        overall = round(weighted / weight_sum)
+        # Half-up rounding (not Python's banker's rounding); the epsilon absorbs float error in
+        # the weight sum so 72.4999999 from exact-72.5 inputs still rounds to 73.
+        overall = math.floor(weighted / weight_sum + 0.5 + 1e-9)
         for cap in self.caps:
             result = scores.get(cap.dimension)
             if result is not None and result.score <= cap.at_or_below:

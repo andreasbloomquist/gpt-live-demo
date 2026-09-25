@@ -92,27 +92,52 @@ SENSITIVE_REQUEST = _lexicon(
     r"card number", r"credit card", r"CVV", r"security code", r"password", r"social security"
 )
 AVAILABILITY_CLAIM = _lexicon(r"is (?:open|available)", r"have a table", r"(?:is|are) free")
+RESULT = _lexicon(r"open", r"available", r"taken", r"closed", r"directly", r"can't check")
 NEXT_STEP = _lexicon(r"call (?:them|the restaurant|\w+ directly)", r"website", r"app", r"I can")
 
 _SENTENCE = re.compile(r"[^.!?]+[.!?]*")
 _MAX_QUOTE_CHARS = 160
 
 
-def _quote(text: str, match: re.Match[str] | None = None) -> str:
-    """An exact substring of ``text``: the sentence containing ``match`` (or the first one)."""
-    for sentence in _SENTENCE.finditer(text):
-        if match is None or sentence.start() <= match.start() < sentence.end():
-            quote = sentence.group().strip()
-            break
-    else:
-        quote = text.strip()
-    if len(quote) > _MAX_QUOTE_CHARS:
-        quote = quote[:_MAX_QUOTE_CHARS].rsplit(" ", 1)[0]
-    return quote
+def _quote(text: str, match: re.Match[str] | None = None, *, last: bool = False) -> str:
+    """An exact substring of ``text`` worth citing.
+
+    Short turns are quoted whole. Otherwise: the sentence containing ``match`` (else the first,
+    or with ``last`` the final sentence, e.g. where an interrupted turn was cut off), trimmed to
+    a window around the match at word boundaries.
+    """
+    if len(text.strip()) <= _MAX_QUOTE_CHARS:
+        return text.strip()
+    sentences = [m for m in _SENTENCE.finditer(text) if m.group().strip()]
+    chosen = sentences[-1] if last else sentences[0]
+    if match is not None:
+        chosen = next((m for m in sentences if m.start() <= match.start() < m.end()), chosen)
+    start, end = chosen.span()
+    if end - start > _MAX_QUOTE_CHARS:
+        if match is not None:
+            start = max(start, match.start() - 40)
+        elif last:
+            start = end - _MAX_QUOTE_CHARS
+        end = min(end, start + _MAX_QUOTE_CHARS)
+        # Snap inwards to whole words so the quote doesn't start or end mid-word.
+        if start > chosen.start() and (space := text.find(" ", start, end)) != -1:
+            start = space + 1
+        if end < chosen.end() and (space := text.rfind(" ", start, end)) > start:
+            end = space
+    return text[start:end].strip()
 
 
-def _evidence(turn: Turn, match: re.Match[str] | None = None) -> EvidenceDraft:
-    return EvidenceDraft(turn_id=turn.id, quote=_quote(turn.text, match))
+def _evidence(
+    turn: Turn, match: re.Match[str] | None = None, *, last: bool = False
+) -> EvidenceDraft:
+    return EvidenceDraft(turn_id=turn.id, quote=_quote(turn.text, match, last=last))
+
+
+def _answer_to(call: ToolCall, agent: list[Turn]) -> Turn | None:
+    """The first agent turn after a tool call, i.e. where the result was relayed (needs times)."""
+    if call.created_at is None:
+        return None
+    return next((t for t in agent if t.started_at and t.started_at > call.created_at), None)
 
 
 def _first_hit(turns: list[Turn], pattern: re.Pattern[str]) -> tuple[Turn, re.Match[str]] | None:
@@ -177,6 +202,7 @@ class _Signals:
     agent: list[Turn]
     checks: list[tuple[ToolCall, dict[str, object], dict[str, object]]]  # (call, args, output)
     searches: list[ToolCall]
+    lookups: list[ToolCall]  # successful checks and searches, in call order
     frustration: list[tuple[Turn, re.Match[str]]]
     escalation: list[tuple[Turn, re.Match[str]]]
     repeats: list[Turn]
@@ -216,6 +242,11 @@ def _signals(record: CallRecord) -> _Signals:
         agent=agent,
         checks=checks,
         searches=[c for c in record.tool_calls if c.name == WEB_SEARCH_TOOL],
+        lookups=[
+            c
+            for c in record.tool_calls
+            if c.name in (RESTAURANT_TOOL, WEB_SEARCH_TOOL) and not c.is_error
+        ],
         frustration=_all_hits(user, FRUSTRATION),
         escalation=_all_hits(user, ESCALATION),
         repeats=_repeated_turns(user),
@@ -265,10 +296,7 @@ def _outcome(s: _Signals) -> tuple[OutcomeStatus, str]:
             return "resolved", "The requested time was open; the caller was told to finish booking."
         if status == "alternatives":
             if s.positive_close:
-                return (
-                    "resolved",
-                    "Requested time taken; the caller accepted an alternative.",
-                )
+                return "resolved", "Requested time taken; the caller accepted an alternative."
             return "partially_resolved", "Alternatives were offered but no choice was confirmed."
         if "directly with the restaurant" in note:
             return (
@@ -280,24 +308,22 @@ def _outcome(s: _Signals) -> tuple[OutcomeStatus, str]:
         if all(c.is_error for c in s.searches):
             return "unresolved", "The web search failed, so the question went unanswered."
         if s.positive_close:
-            return (
-                "resolved",
-                "Answered from a web search; the caller was satisfied.",
-            )
+            return "resolved", "Answered from a web search; the caller was satisfied."
         return "partially_resolved", "A web search was made; the caller's reaction was unclear."
     if s.frustration or s.escalation:
         return "unresolved", "No lookup was made and the caller was frustrated."
     if s.positive_close:
         return "resolved", "The caller ended the call satisfied."
-    return (
-        "partially_resolved",
-        "No lookup was made; outcome unclear from keywords.",
-    )
+    return "partially_resolved", "No lookup was made; outcome unclear from keywords."
 
 
 def _scores(s: _Signals, metrics: Metrics, outcome: OutcomeStatus) -> ScoresDraft:
-    decisive = next((t for t in s.agent if NO_BOOKING_DISCLOSURE.search(t.text)), None)
-    resolution_evidence = [_evidence(decisive)] if decisive else []
+    disclosure = _first_hit(s.agent, NO_BOOKING_DISCLOSURE)
+    answer = _answer_to(s.lookups[-1], s.agent) if s.lookups else None
+    if answer is not None:
+        resolution_evidence = [_evidence(answer, RESULT.search(answer.text))]
+    else:
+        resolution_evidence = [_evidence(*disclosure)] if disclosure else []
 
     resolution = {"resolved": 5, "partially_resolved": 3, "unresolved": 1, "not_applicable": 3}[
         outcome
@@ -305,7 +331,8 @@ def _scores(s: _Signals, metrics: Metrics, outcome: OutcomeStatus) -> ScoresDraf
     if outcome == "resolved" and s.tool_errors:
         resolution -= 1
 
-    next_step = _first_hit(s.agent, NEXT_STEP)
+    # The last next-step offer is the one the caller left with.
+    next_step = _first_hit(s.agent[::-1], NEXT_STEP)
     if outcome == "resolved":
         helpful = 5 if not (s.tool_errors or s.frustration) else 4
     elif outcome == "partially_resolved":
@@ -326,7 +353,6 @@ def _scores(s: _Signals, metrics: Metrics, outcome: OutcomeStatus) -> ScoresDraf
     frustration_evidence = [_evidence(*hit) for hit in (s.frustration + s.escalation)[:3]]
 
     # Groundedness can't really be checked with keywords; stay near the middle and say why.
-    successful_lookups = [c for c in (*(c for c, _, _ in s.checks), *s.searches) if not c.is_error]
     unsupported = _first_hit(s.agent, AVAILABILITY_CLAIM) if not s.checks else None
     if s.booking_claims:
         grounded, grounded_why = 1, "the agent claimed a booking, which no tool can make."
@@ -334,7 +360,7 @@ def _scores(s: _Signals, metrics: Metrics, outcome: OutcomeStatus) -> ScoresDraf
     elif unsupported:
         grounded, grounded_why = 2, "availability was stated without any availability check."
         grounded_evidence = [_evidence(*unsupported)]
-    elif successful_lookups:
+    elif s.lookups:
         grounded = 4
         grounded_why = "answers followed successful lookups; exact claims were not verified."
         grounded_evidence = resolution_evidence
@@ -344,7 +370,7 @@ def _scores(s: _Signals, metrics: Metrics, outcome: OutcomeStatus) -> ScoresDraf
 
     interrupted = [t for t in s.agent if t.interrupted]
     flow = 5 - min(2, len(interrupted)) - (1 if s.repeats else 0)
-    flow_evidence = [_evidence(t) for t in interrupted[:2]]
+    flow_evidence = [_evidence(t, last=True) for t in interrupted[:2]]
 
     longest = max(s.agent, key=lambda t: word_count(t.text), default=None)
     avg = metrics.avg_agent_words_per_turn
@@ -354,7 +380,9 @@ def _scores(s: _Signals, metrics: Metrics, outcome: OutcomeStatus) -> ScoresDraf
     if s.repeats:
         efficiency -= 1
     efficiency_evidence = (
-        [_evidence(longest)] if longest is not None and word_count(longest.text) > 35 else []
+        [_evidence(longest, last=True)]
+        if longest is not None and word_count(longest.text) > 35
+        else []
     )
 
     empathy = _first_hit(s.agent, EMPATHY)
@@ -370,7 +398,7 @@ def _scores(s: _Signals, metrics: Metrics, outcome: OutcomeStatus) -> ScoresDraf
     if violations:
         policy, policy_why = 1, "the agent claimed a booking or asked for sensitive data."
         policy_evidence = [_evidence(*v) for v in violations[:2]]
-    elif _found_a_table(s) and not decisive:
+    elif _found_a_table(s) and not disclosure:
         policy, policy_why = 4, "a table was found but the agent never said nothing was booked."
         policy_evidence = []
     else:
@@ -447,6 +475,14 @@ def _sentiment(s: _Signals) -> list[SentimentDraft]:
     return points
 
 
+def _intent_sentence(intent: str) -> str:
+    if intent.startswith("Table for"):
+        return f"The caller wanted a {intent[:1].lower()}{intent[1:]}."
+    if intent.startswith("Information: "):
+        return f"The caller asked about: {intent.removeprefix('Information: ')}."
+    return f"The caller said: {intent}"
+
+
 def _summary(s: _Signals, intent: str, outcome_reason: str, metrics: Metrics) -> str:
     issues = []
     if metrics.interruptions:
@@ -460,7 +496,7 @@ def _summary(s: _Signals, intent: str, outcome_reason: str, metrics: Metrics) ->
     notable = (
         f"Notable: {', '.join(issues)}." if issues else "No issues detected by keyword checks."
     )
-    return f"Caller intent: {intent}. {outcome_reason} {notable}"
+    return f"{_intent_sentence(intent)} {outcome_reason} {notable}"
 
 
 class HeuristicProvider:

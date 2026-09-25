@@ -493,7 +493,7 @@ Two rows are less obvious than the others:
   never call it. The backend model reads all tool descriptions on every request, so rewording
   one tool can change when the model reaches for a different one.
 
-Settings in `config.py` are compared **field by field**. Credentials, URLs, `log_level`, `livekit_*`
+Settings in `config.py` are compared **field by field**. Credentials, URLs, `log_level`, `livekit_*`,
 `opentable_*` fields (evals always use the mock) and `call_*` recording fields (post-call only) are ignored. Credentials are matched as
 whole name segments (`*_api_key`, `*_secret`, `*_token`), so `gpt_live_backend_max_output_tokens`
 stays behavioural. A new field is treated as behavioural until someone adds it to an allow-list.

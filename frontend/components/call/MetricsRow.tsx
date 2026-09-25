@@ -7,7 +7,7 @@ export function MetricsRow({ m }: { m: Metrics }) {
   const agentShare = Math.min(1, Math.max(0, m.talk_ratio_agent));
   return (
     <dl className={styles.metrics}>
-      <div className={`card ${styles.metric} ${styles.metricWide}`}>
+      <div className={`card ${styles.metric}`}>
         <dt>Talk ratio</dt>
         <dd>
           <span className={styles.metricValue}>{formatPercent(agentShare)}</span>

@@ -12,9 +12,9 @@ def test_metrics_on_untimed_record_use_word_counts() -> None:
     assert metrics.tool_calls == 1
     assert metrics.tool_errors == 0
     assert metrics.interruptions == 0
-    # Agent: 7 + 11 words; caller: 8 + 2 words.
-    assert metrics.avg_agent_words_per_turn == 9.0
-    assert metrics.talk_ratio_agent == round(18 / 28, 3)
+    # Agent: 8 + 11 words; caller: 8 + 2 words.
+    assert metrics.avg_agent_words_per_turn == 9.5
+    assert metrics.talk_ratio_agent == round(19 / 29, 3)
     assert metrics.mean_transcript_confidence == 0.925
     assert metrics.low_confidence_turns == 0
 
