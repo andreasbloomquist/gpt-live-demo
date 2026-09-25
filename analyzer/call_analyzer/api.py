@@ -29,6 +29,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .analysis import CallAnalyzer
 from .config import PLACEHOLDER_TOKEN, Settings
 from .models import (
+    CALL_ID_PATTERN,
     Analysis,
     AnalysisStatus,
     AnalyzerInfo,
@@ -42,7 +43,6 @@ from .worker import AnalysisWorker
 
 logger = logging.getLogger(__name__)
 
-CALL_ID_PATTERN = r"^[A-Za-z0-9_][A-Za-z0-9._:@=+-]{0,199}$"
 MAX_ERROR_DETAILS = 20
 
 _ERROR_CODES = {
@@ -91,7 +91,11 @@ class CallDetail(BaseModel):
 
 
 def error_response(
-    status: int, message: str, *, details: list[dict[str, Any]] | None = None, headers=None
+    status: int,
+    message: str,
+    *,
+    details: list[dict[str, Any]] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     body: dict[str, Any] = {"code": _ERROR_CODES.get(status, "error"), "message": message}
     if details:
@@ -191,8 +195,8 @@ def create_app(
     token = settings.require_api_token()
     if token == PLACEHOLDER_TOKEN:
         logger.warning("CALL_ANALYZER_TOKEN is the public placeholder; never use it when deployed")
-    repo = repository or SQLiteCallRepository(settings.db_path)
     call_analyzer = analyzer or CallAnalyzer(build_provider(settings), default_rubric())
+    repo = repository or SQLiteCallRepository(settings.db_path)
     worker = AnalysisWorker(
         repo,
         call_analyzer,
@@ -239,7 +243,20 @@ def create_app(
 
     v1 = APIRouter(prefix="/v1", dependencies=[Depends(require_token)])
 
-    @v1.post("/calls", status_code=202, response_model=Accepted)
+    @v1.post(
+        "/calls",
+        status_code=202,
+        response_model=Accepted,
+        # The body is read by hand (to enforce the byte cap before parsing), so describe it here.
+        openapi_extra={
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/json": {"schema": {"$ref": "#/components/schemas/CallRecord"}}
+                },
+            }
+        },
+    )
     async def ingest_call(request: Request) -> Any:
         """Store a CallRecord and queue its analysis.
 

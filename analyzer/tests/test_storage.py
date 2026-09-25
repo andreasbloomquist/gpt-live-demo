@@ -106,23 +106,33 @@ async def test_reanalysis_supersedes_an_in_flight_run(repo: SQLiteCallRepository
     assert (analysis.status, analysis.summary) == ("done", "ok")
 
 
-async def test_recover_interrupted_requeues_or_fails(repo: SQLiteCallRepository) -> None:
+async def test_recover_interrupted_requeues_until_attempts_run_out(
+    repo: SQLiteCallRepository,
+) -> None:
     await repo.insert_call(make_record(call_id="a"))
-    await repo.insert_call(make_record(call_id="b"))
-    job_a = await repo.claim_next()
-    job_b = await repo.claim_next()
-    assert job_a and job_b
+    # The process "dies" mid-job three times in a row (e.g. this call triggers a crash).
+    for attempt in (1, 2, 3):
+        job = await repo.claim_next()
+        assert job is not None and job.attempts == attempt
+        requeued, failed = await repo.recover_interrupted(max_attempts=3)
+        stored = await repo.get_call("a")
+        assert stored is not None
+        if attempt < 3:
+            assert (requeued, failed) == (1, 0)
+            assert stored.analysis.status == "pending"
+        else:
+            assert (requeued, failed) == (0, 1)
+            assert stored.analysis.status == "failed"
+            assert "interrupted" in (stored.analysis.error or "")
 
-    # Pretend "b" has already crashed the process twice before.
-    await repo._write(
-        lambda conn: conn.execute("UPDATE analyses SET attempts = 3 WHERE call_id = 'b'")
-    )
-    assert await repo.recover_interrupted(max_attempts=3) == (1, 1)
 
-    a, b = await repo.get_call("a"), await repo.get_call("b")
-    assert a is not None and a.analysis.status == "pending"
-    assert b is not None and b.analysis.status == "failed"
-    assert "interrupted" in (b.analysis.error or "")
+async def test_release_does_not_charge_an_attempt(repo: SQLiteCallRepository) -> None:
+    await repo.insert_call(make_record(call_id="a"))
+    job = await repo.claim_next()
+    assert job is not None
+    assert await repo.release(job)
+    again = await repo.claim_next()
+    assert again is not None and again.attempts == 1
 
 
 async def test_data_survives_reopen(tmp_path: Path) -> None:

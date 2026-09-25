@@ -39,7 +39,11 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
     return (
       <main className="page">
         <BackLink />
-        <AnalyzerUnavailable message={analyzerErrorMessage(e)} retryHref={`/calls/${encodeURIComponent(id)}`} />
+        <AnalyzerUnavailable
+          title="Can’t load this call right now"
+          message={analyzerErrorMessage(e)}
+          retryHref={`/calls/${encodeURIComponent(id)}`}
+        />
       </main>
     );
   }

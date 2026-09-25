@@ -156,6 +156,7 @@ class CallRepository(Protocol):
     async def complete(self, job: Job, analysis: Analysis) -> bool: ...
     async def retry_later(self, job: Job, error: str, delay_s: float) -> bool: ...
     async def fail(self, job: Job, error: str) -> bool: ...
+    async def release(self, job: Job) -> bool: ...
     async def recover_interrupted(self, max_attempts: int) -> tuple[int, int]: ...
     async def close(self) -> None: ...
 
@@ -201,10 +202,13 @@ class SQLiteCallRepository:
             conn.execute("BEGIN IMMEDIATE")
             try:
                 result = fn(conn)
+                conn.execute("COMMIT")
             except BaseException:
-                conn.execute("ROLLBACK")
+                # Also covers a failed COMMIT (e.g. SQLITE_BUSY), which leaves the transaction
+                # open and would make every later BEGIN fail.
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
                 raise
-            conn.execute("COMMIT")
             return result
 
         return await self._run(tx)
@@ -359,6 +363,14 @@ class SQLiteCallRepository:
 
     async def fail(self, job: Job, error: str) -> bool:
         return await self._finish(job, "status = 'failed', error = ?", (error,))
+
+    async def release(self, job: Job) -> bool:
+        """Hand a job back untouched (graceful shutdown): pending again, attempt not charged."""
+        return await self._finish(
+            job,
+            "status = 'pending', attempts = attempts - 1, next_attempt_at = ?",
+            (_ts(utc_now()),),
+        )
 
     async def recover_interrupted(self, max_attempts: int) -> tuple[int, int]:
         """On startup, rows left ``running`` belong to a process that died mid-job. Requeue

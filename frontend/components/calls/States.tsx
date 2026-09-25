@@ -27,18 +27,26 @@ export function EmptyCalls() {
   );
 }
 
-export function AnalyzerUnavailable({ message, retryHref }: { message: string; retryHref: string }) {
+export function AnalyzerUnavailable({
+  title = "Can’t load calls right now",
+  message,
+  retryHref,
+}: {
+  title?: string;
+  message: string;
+  retryHref: string;
+}) {
   return (
     <section className={`card ${styles.state}`} role="alert">
       <div className={`${styles.stateIcon} ${styles.stateIconError}`}>
         <AlertIcon />
       </div>
-      <h2>Can&rsquo;t load calls right now</h2>
+      <h2>{title}</h2>
       <p>{message}</p>
-      <p className="muted">
-        Running locally? Start the analyzer with{" "}
-        <code>cd analyzer && uv run python -m call_analyzer serve</code>.
-      </p>
+      <p>Running locally? Start the analyzer:</p>
+      <pre className={styles.cmd}>
+        <code>cd analyzer && uv run python -m call_analyzer serve</code>
+      </pre>
       <Link href={retryHref} className="btn">
         Try again
       </Link>

@@ -38,7 +38,8 @@ MAX_USAGE_ENTRIES = 200
 MAX_CALL_DURATION_S = 24 * 3600
 
 # Call IDs appear in URLs and log lines, so keep them to a boring, URL-safe alphabet.
-CallId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_][A-Za-z0-9._:@=+-]{0,199}$")]
+CALL_ID_PATTERN = r"^[A-Za-z0-9_][A-Za-z0-9._:@=+-]{0,199}$"
+CallId = Annotated[str, StringConstraints(pattern=CALL_ID_PATTERN)]
 ShortText = Annotated[str, StringConstraints(max_length=256)]
 Identifier = Annotated[str, StringConstraints(min_length=1, max_length=128)]
 

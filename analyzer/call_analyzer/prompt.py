@@ -42,7 +42,12 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + " [...truncated]"
 
 
-def _turn_line(turn: Turn) -> str:
+def _offset(when: dt.datetime | None, origin: dt.datetime) -> float | None:
+    """Seconds since the call started: easier for a judge to reason about than wall-clock."""
+    return None if when is None else round((when - origin).total_seconds(), 1)
+
+
+def _turn_line(turn: Turn, origin: dt.datetime) -> str:
     item: dict[str, object] = {"type": "turn", "id": turn.id, "role": turn.role}
     item["text"] = _clip(turn.text, MAX_TURN_PROMPT_CHARS)
     if turn.interrupted:
@@ -50,11 +55,11 @@ def _turn_line(turn: Turn) -> str:
     if turn.transcript_confidence is not None:
         item["transcript_confidence"] = round(turn.transcript_confidence, 2)
     if turn.started_at is not None:
-        item["t"] = turn.started_at.strftime("%H:%M:%S")
+        item["at_s"] = _offset(turn.started_at, origin)
     return json.dumps(item, ensure_ascii=False)
 
 
-def _tool_line(call: ToolCall) -> str:
+def _tool_line(call: ToolCall, origin: dt.datetime) -> str:
     item: dict[str, object] = {
         "type": "tool_call",
         "id": call.id,
@@ -64,25 +69,21 @@ def _tool_line(call: ToolCall) -> str:
         "is_error": call.is_error,
     }
     if call.created_at is not None:
-        item["t"] = call.created_at.strftime("%H:%M:%S")
+        item["at_s"] = _offset(call.created_at, origin)
     return json.dumps(item, ensure_ascii=False)
 
 
 def _timeline(record: CallRecord) -> list[str]:
     """Turns and tool calls as JSON lines, interleaved by time when every item is timestamped
     (so the judge sees what the agent said *after* a tool returned), else turns then tools."""
-    timed = all(t.started_at for t in record.turns) and all(c.created_at for c in record.tool_calls)
-    if timed:
-        items: list[tuple[dt.datetime, int, str]] = [
-            (t.started_at, i, _turn_line(t))  # type: ignore[misc]
-            for i, t in enumerate(record.turns)
-        ]
-        items += [
-            (c.created_at, len(items) + i, _tool_line(c))  # type: ignore[misc]
-            for i, c in enumerate(record.tool_calls)
-        ]
-        return [line for _, _, line in sorted(items)]
-    return [_turn_line(t) for t in record.turns] + [_tool_line(c) for c in record.tool_calls]
+    origin = record.started_at
+    turns = [(t.started_at, _turn_line(t, origin)) for t in record.turns]
+    tools = [(c.created_at, _tool_line(c, origin)) for c in record.tool_calls]
+    items = turns + tools
+    if all(when is not None for when, _ in items):
+        # sorted() is stable, so a tool call logged at the same instant as a turn follows it.
+        items = sorted(items, key=lambda item: item[0])  # type: ignore[arg-type,return-value]
+    return [line for _, line in items]
 
 
 def _fit_budget(lines: list[str], budget: int) -> tuple[list[str], int]:
@@ -142,7 +143,8 @@ sentences. Deterministic metrics are provided for context; don't recompute them.
 
     header = {
         "agent_name": record.agent_name,
-        "duration_s": metrics.duration_s,
+        # Lets the judge check relative dates ("tonight", "this Saturday") the agent resolved.
+        "started_at_utc": record.started_at.isoformat(),
         "end_reason": record.end_reason,
         "metrics": metrics.model_dump(),
     }
@@ -151,7 +153,7 @@ sentences. Deterministic metrics are provided for context; don't recompute them.
             "Grade this call.",
             f"Call metadata: {json.dumps(header, ensure_ascii=False)}",
             "Each line below is one JSON object: a turn (role user = caller, assistant = agent) or "
-            "a tool call made by the agent's backend.",
+            "a tool call made by the agent's backend; at_s = seconds since the call started.",
             begin,
             *lines,
             end,

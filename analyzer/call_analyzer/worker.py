@@ -13,8 +13,9 @@ Failure handling:
 * A job that overruns ``job_timeout_s`` is cancelled and counts as a retryable failure.
 * Unexpected exceptions are bugs: logged with a traceback, stored as a generic message (never
   the exception text, which could echo transcript content), and not retried.
-* On shutdown, in-flight jobs are cancelled and their rows stay ``running``; the next startup's
-  :meth:`start` requeues them (restart recovery).
+* On graceful shutdown, in-flight jobs are cancelled and handed back as ``pending`` without
+  charging an attempt. If the process dies instead, rows stay ``running`` and the next startup
+  requeues them (restart recovery), charging the attempt so a crash-inducing call can't loop.
 """
 
 from __future__ import annotations
@@ -111,6 +112,14 @@ class AnalysisWorker:
             self._wake.clear()
 
     async def _process(self, job: Job) -> None:
+        try:
+            await self._run_job(job)
+        except asyncio.CancelledError:
+            # Shutdown (stop() cancelled us): a deploy shouldn't count against the call.
+            await self._repo.release(job)
+            raise
+
+    async def _run_job(self, job: Job) -> None:
         log_extra = {"call_id": job.call_id, "attempt": job.attempts}
         stored = await self._repo.get_call(job.call_id)
         if stored is None:  # deleted between claim and load

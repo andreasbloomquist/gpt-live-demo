@@ -125,15 +125,23 @@ async def test_background_loops_pick_up_new_work(repo, rubric: Rubric) -> None:
         await worker.stop()
 
 
+async def test_graceful_stop_hands_jobs_back_uncharged(repo, rubric: Rubric) -> None:
+    await repo.insert_call(make_record(call_id="a"))
+    hung = worker_for(repo, ScriptedProvider(hang=True), rubric)
+    await hung.start()
+    await wait_for_status(repo, "a", "running")
+    await hung.stop()
+
+    state = await status_of(repo, "a")
+    assert (state.status, state.attempts) == ("pending", 0)
+
+
 async def test_restart_recovers_interrupted_jobs(tmp_path: Path, rubric: Rubric) -> None:
     path = tmp_path / "calls.db"
-    # Process 1 claims a job and "dies" mid-analysis: the row is left `running`.
+    # Process 1 claims a job and dies mid-analysis (no shutdown): the row is left `running`.
     first = SQLiteCallRepository(path)
     await first.insert_call(make_record(call_id="a"))
-    hung = worker_for(first, ScriptedProvider(hang=True), rubric)
-    await hung.start()
-    await wait_for_status(first, "a", "running")
-    await hung.stop()
+    assert await first.claim_next() is not None
     await first.close()
 
     # Process 2 starts, recovers the row, and finishes it.
