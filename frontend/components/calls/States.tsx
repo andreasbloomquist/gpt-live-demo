@@ -14,9 +14,7 @@ export function EmptyCalls() {
         When a call ends, the agent sends its transcript to the Call Analyzer, which scores it in
         the background. Finished calls show up here.
       </p>
-      <p>
-        Want sample data? Load the demo calls into the analyzer:
-      </p>
+      <p>Want sample data? Load the demo calls into the analyzer:</p>
       <pre className={styles.cmd}>
         <code>cd analyzer && uv run python -m call_analyzer seed</code>
       </pre>

@@ -19,7 +19,13 @@ const FIRST_DELAY_MS = 2_500;
 const MAX_DELAY_MS = 30_000;
 const MAX_VISIBLE_MS = 3 * 60_000;
 
-export function AnalysisPoller({ active, showStatus = false }: { active: boolean; showStatus?: boolean }) {
+export function AnalysisPoller({
+  active,
+  showStatus = false,
+}: {
+  active: boolean;
+  showStatus?: boolean;
+}) {
   const router = useRouter();
   const [gaveUp, setGaveUp] = useState(false);
 
@@ -65,5 +71,7 @@ export function AnalysisPoller({ active, showStatus = false }: { active: boolean
   }, [active, router]);
 
   if (!showStatus || !active) return null;
-  return <>{gaveUp ? "Still analyzing. Refresh to check again." : "This page updates automatically."}</>;
+  return (
+    <>{gaveUp ? "Still analyzing. Refresh to check again." : "This page updates automatically."}</>
+  );
 }

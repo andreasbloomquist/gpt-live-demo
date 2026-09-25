@@ -9,8 +9,7 @@ import { ScoreRing } from "./ScoreRing";
 import styles from "./calls.module.css";
 
 export function CallCard({ call }: { call: CallSummary }) {
-  const title =
-    call.caller_intent ?? (call.status === "done" ? "Call" : "Waiting for analysis…");
+  const title = call.caller_intent ?? (call.status === "done" ? "Call" : "Waiting for analysis…");
   return (
     <li>
       <Link href={`/calls/${encodeURIComponent(call.call_id)}`} className={`card ${styles.row}`}>
@@ -40,7 +39,9 @@ export function CallCard({ call }: { call: CallSummary }) {
         <div className={styles.rowSide}>
           <OutcomePill status={call.outcome?.status} />
           <AnalysisStatusPill status={call.status} />
-          {call.status === "done" && call.analyzer?.provider === "heuristic" && <HeuristicBadge compact />}
+          {call.status === "done" && call.analyzer?.provider === "heuristic" && (
+            <HeuristicBadge compact />
+          )}
           <ChevronRightIcon className={styles.chevron} />
         </div>
       </Link>

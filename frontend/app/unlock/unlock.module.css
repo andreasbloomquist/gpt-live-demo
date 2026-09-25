@@ -1,4 +1,8 @@
-.wrap { display: grid; place-items: center; padding-top: clamp(40px, 12vh, 120px); }
+.wrap {
+  display: grid;
+  place-items: center;
+  padding-top: clamp(40px, 12vh, 120px);
+}
 .card {
   width: 100%;
   max-width: 380px;
@@ -9,9 +13,17 @@
   padding: 36px 28px 28px;
   text-align: center;
 }
-.card h1 { font-size: 1.5rem; letter-spacing: -0.03em; }
-.card p { font-size: 0.9375rem; }
-.card :global(.btn) { width: 100%; margin-top: 4px; }
+.card h1 {
+  font-size: 1.5rem;
+  letter-spacing: -0.03em;
+}
+.card p {
+  font-size: 0.9375rem;
+}
+.card :global(.btn) {
+  width: 100%;
+  margin-top: 4px;
+}
 .icon {
   display: grid;
   place-items: center;
@@ -22,7 +34,10 @@
   color: var(--accent);
   margin-bottom: 4px;
 }
-.icon svg { width: 26px; height: 26px; }
+.icon svg {
+  width: 26px;
+  height: 26px;
+}
 .input {
   width: 100%;
   height: 44px;
@@ -34,8 +49,18 @@
   color: var(--text);
   font: inherit;
   font-size: 1rem;
-  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
-.input:focus-visible { border-color: var(--accent); box-shadow: var(--focus); }
-.input[aria-invalid] { border-color: var(--red); }
-.error { color: var(--red); font-size: 0.875rem; }
+.input:focus-visible {
+  border-color: var(--accent);
+  box-shadow: var(--focus);
+}
+.input[aria-invalid] {
+  border-color: var(--red);
+}
+.error {
+  color: var(--red);
+  font-size: 0.875rem;
+}

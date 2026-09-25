@@ -23,7 +23,13 @@ export function ScoreRing({ score, size = 52, label = "Overall score" }: Props) 
       aria-label={score === null ? `${label}: not available` : `${label}: ${value} out of 100`}
     >
       <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} aria-hidden="true">
-        <circle className={styles.ringTrack} cx={size / 2} cy={size / 2} r={r} strokeWidth={stroke} />
+        <circle
+          className={styles.ringTrack}
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          strokeWidth={stroke}
+        />
         <circle
           className={styles.ringValue}
           cx={size / 2}

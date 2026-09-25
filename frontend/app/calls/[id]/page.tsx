@@ -12,7 +12,12 @@ import { ReanalyzeButton } from "@/components/call-detail/ReanalyzeButton";
 import { Scorecard } from "@/components/call-detail/Scorecard";
 import { Sparkline } from "@/components/call-detail/Sparkline";
 import { AnalysisPoller } from "@/components/calls/AnalysisPoller";
-import { AnalysisStatusPill, HeuristicBadge, isInFlight, OutcomePill } from "@/components/calls/Badges";
+import {
+  AnalysisStatusPill,
+  HeuristicBadge,
+  isInFlight,
+  OutcomePill,
+} from "@/components/calls/Badges";
 import { ScoreRing } from "@/components/calls/ScoreRing";
 import { AnalyzerUnavailable } from "@/components/calls/States";
 import { ChevronLeftIcon } from "@/components/icons";
@@ -114,7 +119,9 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
           {done.metrics && (
             <section className={styles.section} aria-labelledby="metrics">
               <h2 id="metrics">Metrics</h2>
-              <p className={styles.sectionLede}>Computed exactly from the call record, not by a model.</p>
+              <p className={styles.sectionLede}>
+                Computed exactly from the call record, not by a model.
+              </p>
               <MetricsRow metrics={done.metrics} />
             </section>
           )}
@@ -212,7 +219,11 @@ function AnalysisBar({
           </>
         )}
       </div>
-      <ReanalyzeButton callId={callId} busy={inFlight} label={analysis === null ? "Analyze" : "Re-analyze"} />
+      <ReanalyzeButton
+        callId={callId}
+        busy={inFlight}
+        label={analysis === null ? "Analyze" : "Re-analyze"}
+      />
     </div>
   );
 }

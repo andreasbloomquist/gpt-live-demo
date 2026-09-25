@@ -3,7 +3,9 @@ import styles from "@/components/call-detail/detail.module.css";
 export default function Loading() {
   return (
     <main className="page" aria-busy="true">
-      <p className="sr-only" role="status">Loading call…</p>
+      <p className="sr-only" role="status">
+        Loading call…
+      </p>
       <div aria-hidden="true">
         <div className={`skeleton ${styles.skeletonBack}`} />
         <div className={styles.hero}>

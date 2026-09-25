@@ -36,7 +36,7 @@ CALL_ANALYZER_TOKEN=change-me-shared-secret uv run python -m call_analyzer serve
 
 Then set `CALL_ANALYZER_URL=http://localhost:8080` and the same `CALL_ANALYZER_TOKEN` in `frontend/.env.local`. After that, every call you make on the Live page shows up under Calls once the agent posts it to the analyzer.
 
-Other scripts: `npm run lint`, `npm run typecheck`, `npm run build && npm start`.
+Other scripts: `npm run lint`, `npm run typecheck`, `npm run format` (Prettier; CI runs `npm run format:check`), `npm run build && npm start`.
 
 ## Environment
 

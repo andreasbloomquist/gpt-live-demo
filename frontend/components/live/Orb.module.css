@@ -6,7 +6,9 @@
   flex: none;
 }
 @media (max-width: 600px) {
-  .orb { --size: 200px; }
+  .orb {
+    --size: 200px;
+  }
 }
 
 .glow {
@@ -16,7 +18,9 @@
   background: conic-gradient(from 180deg, #5ac8fa, #0a84ff, #bf5af2, #ff6482, #5ac8fa);
   filter: blur(36px);
   opacity: 0.35;
-  transition: opacity 600ms var(--ease), transform 600ms var(--ease);
+  transition:
+    opacity 600ms var(--ease),
+    transform 600ms var(--ease);
 }
 
 .sphere {
@@ -25,8 +29,12 @@
   border-radius: 50%;
   overflow: hidden;
   background: radial-gradient(circle at 50% 50%, #0a84ff 0%, #0060df 70%);
-  box-shadow: inset 0 -12px 32px rgba(0, 0, 0, 0.18), inset 0 2px 0 rgba(255, 255, 255, 0.25);
-  transition: transform 600ms var(--ease), filter 600ms var(--ease);
+  box-shadow:
+    inset 0 -12px 32px rgba(0, 0, 0, 0.18),
+    inset 0 2px 0 rgba(255, 255, 255, 0.25);
+  transition:
+    transform 600ms var(--ease),
+    filter 600ms var(--ease);
 }
 
 /* Colored clouds that drift/rotate inside the sphere. */
@@ -61,7 +69,9 @@
 
 /* ---- states ---------------------------------------------------------- */
 .orb[data-state="idle"] .sphere,
-.orb[data-state="disconnected"] .sphere { animation: breathe 6s var(--ease) infinite; }
+.orb[data-state="disconnected"] .sphere {
+  animation: breathe 6s var(--ease) infinite;
+}
 
 .orb[data-state="connecting"] .sphere,
 .orb[data-state="initializing"] .sphere,
@@ -70,22 +80,58 @@
   animation: breathe 2.4s var(--ease) infinite;
 }
 .orb[data-state="connecting"] .glow,
-.orb[data-state="initializing"] .glow { opacity: 0.2; }
+.orb[data-state="initializing"] .glow {
+  opacity: 0.2;
+}
 
-.orb[data-state="listening"] .sphere { animation: breathe 3.2s var(--ease) infinite; }
-.orb[data-state="listening"] .glow { opacity: 0.45; }
+.orb[data-state="listening"] .sphere {
+  animation: breathe 3.2s var(--ease) infinite;
+}
+.orb[data-state="listening"] .glow {
+  opacity: 0.45;
+}
 
-.orb[data-state="thinking"] .swirl { animation-duration: 3s; }
-.orb[data-state="thinking"] .glow { opacity: 0.5; animation: pulse 1.6s var(--ease) infinite; }
+.orb[data-state="thinking"] .swirl {
+  animation-duration: 3s;
+}
+.orb[data-state="thinking"] .glow {
+  opacity: 0.5;
+  animation: pulse 1.6s var(--ease) infinite;
+}
 
-.orb[data-state="speaking"] .sphere { transform: scale(1.03); }
-.orb[data-state="speaking"] .swirl { animation-duration: 7s; }
-.orb[data-state="speaking"] .glow { opacity: 0.7; transform: scale(1.12); }
+.orb[data-state="speaking"] .sphere {
+  transform: scale(1.03);
+}
+.orb[data-state="speaking"] .swirl {
+  animation-duration: 7s;
+}
+.orb[data-state="speaking"] .glow {
+  opacity: 0.7;
+  transform: scale(1.12);
+}
 
-.orb[data-state="failed"] .sphere { filter: grayscale(1) brightness(0.9); }
-.orb[data-state="failed"] .swirl { animation: none; }
-.orb[data-state="failed"] .glow { opacity: 0; }
+.orb[data-state="failed"] .sphere {
+  filter: grayscale(1) brightness(0.9);
+}
+.orb[data-state="failed"] .swirl {
+  animation: none;
+}
+.orb[data-state="failed"] .glow {
+  opacity: 0;
+}
 
-@keyframes rotate { to { transform: rotate(360deg); } }
-@keyframes breathe { 50% { transform: scale(1.035); } }
-@keyframes pulse { 50% { opacity: 0.25; } }
+@keyframes rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes breathe {
+  50% {
+    transform: scale(1.035);
+  }
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
+}

@@ -13,13 +13,29 @@ import { useSyncExternalStore } from "react";
 const noopSubscribe = () => () => {};
 
 const OPTIONS: Record<"datetime" | "date" | "time", Intl.DateTimeFormatOptions> = {
-  datetime: { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" },
+  datetime: {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  },
   date: { weekday: "long", month: "long", day: "numeric", year: "numeric" },
   time: { hour: "numeric", minute: "2-digit", second: "2-digit" },
 };
 
-export function LocalTime({ iso, format = "datetime" }: { iso: string; format?: keyof typeof OPTIONS }) {
-  const hydrated = useSyncExternalStore(noopSubscribe, () => true, () => false);
+export function LocalTime({
+  iso,
+  format = "datetime",
+}: {
+  iso: string;
+  format?: keyof typeof OPTIONS;
+}) {
+  const hydrated = useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false,
+  );
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return <span>Unknown time</span>;
 

@@ -117,8 +117,8 @@ export function LiveExperience() {
       <p className="eyebrow">GPT-Live × LiveKit Agents</p>
       <h1 className={styles.title}>Talk to Ava.</h1>
       <p className={styles.lede}>
-        A dining concierge you can simply talk to. Ask for a table tonight, check what&rsquo;s
-        open nearby, or change your mind mid-sentence. She&rsquo;s listening even while she speaks.
+        A dining concierge you can simply talk to. Ask for a table tonight, check what&rsquo;s open
+        nearby, or change your mind mid-sentence. She&rsquo;s listening even while she speaks.
       </p>
 
       <Orb state={connecting ? "connecting" : "idle"} />

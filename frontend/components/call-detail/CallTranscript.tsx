@@ -46,7 +46,8 @@ function TurnRow({ turn, callStart }: { turn: Turn; callStart: string }) {
   const isUser = turn.role === "user";
   const conf = confidenceLevel(turn.transcript_confidence);
   const offset = offsetFrom(callStart, turn.started_at);
-  const pct = turn.transcript_confidence === null ? null : Math.round(turn.transcript_confidence * 100);
+  const pct =
+    turn.transcript_confidence === null ? null : Math.round(turn.transcript_confidence * 100);
 
   return (
     <li
@@ -58,13 +59,21 @@ function TurnRow({ turn, callStart }: { turn: Turn; callStart: string }) {
       <p className={styles.turnBubble}>
         <span className="sr-only">{isUser ? "Caller: " : "Ava: "}</span>
         {turn.text || <em className={styles.noWords}>No words transcribed</em>}
-        {turn.interrupted && <span className={styles.cut} aria-hidden="true">—</span>}
+        {turn.interrupted && (
+          <span className={styles.cut} aria-hidden="true">
+            —
+          </span>
+        )}
       </p>
       <p className={styles.turnMeta}>
         <span>{isUser ? "Caller" : "Ava"}</span>
         {offset !== null && <span className={styles.mono}>{formatClock(offset)}</span>}
         {pct !== null && (
-          <span className={styles.conf} data-level={conf} title="Speech-to-text confidence for this turn">
+          <span
+            className={styles.conf}
+            data-level={conf}
+            title="Speech-to-text confidence for this turn"
+          >
             {conf === "low" && <AlertIcon />}
             <span className="sr-only">Transcription confidence </span>
             {conf === "low" ? `Low confidence · ${pct}%` : `${pct}%`}
@@ -114,10 +123,16 @@ function Legend() {
   return (
     <ul className={styles.legend} aria-label="Legend">
       <li>
-        <span className={styles.conf} data-level="high">97%</span> Caller speech-to-text confidence
+        <span className={styles.conf} data-level="high">
+          97%
+        </span>{" "}
+        Caller speech-to-text confidence
       </li>
       <li>
-        <span className={styles.conf} data-level="medium">72%</span> Medium (below {formatPercent(HIGH_CONFIDENCE)})
+        <span className={styles.conf} data-level="medium">
+          72%
+        </span>{" "}
+        Medium (below {formatPercent(HIGH_CONFIDENCE)})
       </li>
       <li>
         <span className={styles.conf} data-level="low">

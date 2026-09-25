@@ -30,7 +30,9 @@
   letter-spacing: -0.02em;
   white-space: nowrap;
 }
-.brand:hover { text-decoration: none; }
+.brand:hover {
+  text-decoration: none;
+}
 
 .mark {
   width: 22px;
@@ -59,8 +61,18 @@
   color: var(--text-2);
   font-size: 0.875rem;
   font-weight: 500;
-  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
 }
-.link:hover { color: var(--text); text-decoration: none; }
-.link:focus-visible { border-radius: 999px; }
-.link[aria-current="page"] { color: var(--text); background: var(--gray-soft); }
+.link:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+.link:focus-visible {
+  border-radius: 999px;
+}
+.link[aria-current="page"] {
+  color: var(--text);
+  background: var(--gray-soft);
+}

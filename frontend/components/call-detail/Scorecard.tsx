@@ -27,7 +27,9 @@ export function Scorecard({ scores }: { scores: Analysis["scores"] }) {
             <header className={styles.dimHead}>
               <div>
                 <h3>{meta?.label ?? humanize(dim)}</h3>
-                {inverted && <p className={styles.dimNote}>Lower is better · 1 = none, 5 = severe</p>}
+                {inverted && (
+                  <p className={styles.dimNote}>Lower is better · 1 = none, 5 = severe</p>
+                )}
               </div>
               <p className={styles.dimScore} aria-label={`Score ${s.score} out of 5`}>
                 {s.score}
@@ -45,7 +47,10 @@ export function Scorecard({ scores }: { scores: Analysis["scores"] }) {
               <ul className={styles.evidence} aria-label="Evidence">
                 {s.evidence.map((ev, i) => (
                   <li key={i}>
-                    <a href={`#${turnAnchor(ev.turn_id)}`} title="Jump to this turn in the transcript">
+                    <a
+                      href={`#${turnAnchor(ev.turn_id)}`}
+                      title="Jump to this turn in the transcript"
+                    >
                       &ldquo;{ev.quote}&rdquo;
                     </a>
                   </li>

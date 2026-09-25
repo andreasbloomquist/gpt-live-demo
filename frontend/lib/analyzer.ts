@@ -42,7 +42,8 @@ const MESSAGES: Record<AnalyzerErrorKind, string> = {
   not_found: "That call doesn't exist (or was deleted).",
   bad_request: "The call analyzer couldn't process that request.",
   upstream: "The call analyzer ran into a problem. Try again in a moment.",
-  bad_response: "The call analyzer sent a response this app doesn't understand. Are both on the same version?",
+  bad_response:
+    "The call analyzer sent a response this app doesn't understand. Are both on the same version?",
 };
 
 export class AnalyzerError extends Error {
@@ -142,7 +143,10 @@ function parseAnalyzerInfo(v: unknown): AnalyzerInfo | null {
 }
 
 /** Keep only string values: these land in <code> elements as text. */
-function strings<K extends string>(v: unknown, keys: readonly K[]): Partial<Record<K, string>> | undefined {
+function strings<K extends string>(
+  v: unknown,
+  keys: readonly K[],
+): Partial<Record<K, string>> | undefined {
   if (!isObj(v)) return undefined;
   const out: Partial<Record<K, string>> = {};
   for (const k of keys) {
@@ -223,7 +227,11 @@ function parseAnalysis(v: unknown): Analysis | null {
   if (!isObj(v) || !str(v.status)) invalid("analysis");
   return {
     ...(v as unknown as Analysis),
-    analyzer: parseAnalyzerInfo(v.analyzer) ?? { provider: "unknown", model: null, rubric_version: "?" },
+    analyzer: parseAnalyzerInfo(v.analyzer) ?? {
+      provider: "unknown",
+      model: null,
+      rubric_version: "?",
+    },
     scores: isObj(v.scores) ? (v.scores as Analysis["scores"]) : {},
     flags: arr(v.flags) as Analysis["flags"],
     sentiment: arr(v.sentiment).filter(

@@ -96,7 +96,10 @@ export function VoiceSession() {
             </span>
           </div>
           <div className={styles.control}>
-            <DisconnectButton className={`${styles.roundBtn} ${styles.endBtn}`} aria-label="End call">
+            <DisconnectButton
+              className={`${styles.roundBtn} ${styles.endBtn}`}
+              aria-label="End call"
+            >
               <PhoneDownIcon />
             </DisconnectButton>
             <span className={styles.caption} aria-hidden="true">

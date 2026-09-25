@@ -15,12 +15,7 @@
  * before exposing it publicly.
  */
 import { NextResponse } from "next/server";
-import {
-  AccessToken,
-  RoomAgentDispatch,
-  RoomConfiguration,
-  TrackSource,
-} from "livekit-server-sdk";
+import { AccessToken, RoomAgentDispatch, RoomConfiguration, TrackSource } from "livekit-server-sdk";
 import { isUnlocked } from "@/lib/passcode";
 import type { ConnectionDetails } from "@/lib/types";
 
@@ -37,8 +32,7 @@ export async function POST() {
     );
   }
 
-  const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_AGENT_NAME } =
-    process.env;
+  const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_AGENT_NAME } = process.env;
 
   if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
     const missing = Object.entries({ LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET })
@@ -46,7 +40,8 @@ export async function POST() {
       .map(([key]) => key);
     return NextResponse.json(
       {
-        error: `Missing environment variable(s): ${missing.join(", ")}. ` +
+        error:
+          `Missing environment variable(s): ${missing.join(", ")}. ` +
           "Copy frontend/.env.example to frontend/.env.local and fill in your LiveKit credentials.",
       },
       { status: 500, headers: NO_STORE },

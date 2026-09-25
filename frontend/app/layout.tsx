@@ -23,7 +23,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {children}
         <footer className="site-footer">
           GPT-Live × LiveKit Agents reference demo ·{" "}
-          <a href="https://github.com/andreasbloomquist/gpt-live-demo" target="_blank" rel="noreferrer">
+          <a
+            href="https://github.com/andreasbloomquist/gpt-live-demo"
+            target="_blank"
+            rel="noreferrer"
+          >
             Source on GitHub
           </a>
         </footer>
