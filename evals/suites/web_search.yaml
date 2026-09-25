@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=../suite.schema.json
+#
+# When to reach for web search (fresh facts) vs. answer directly (stable knowledge), and how
+# search results get turned into something speakable. Web search runs server-side on the
+# backend Responses model, so these evals hit the live web: rubrics check *behaviour*
+# (grounded, brief, attributed), never specific facts that change daily.
+name: web_search
+description: Uses web search for time-sensitive questions; answers stable facts directly.
+profile: concierge
+tiers: [brain, voice]
+tools: [web_search]
+trials: 3
+pass_threshold: 0.67
+
+cases:
+  - id: fresh_news_uses_search
+    user: What's the latest news about the Golden Gate Bridge?
+    expect:
+      tool_calls:
+        - name: web_search
+          args_subset:
+            query: { $regex: "golden gate" }
+      forbidden_tools: [check_restaurant_availability]
+      judge: >-
+        The reply summarizes one or two recent items in plain conversational language, suitable
+        to be spoken aloud, and does not invent specifics it could not have found.
+
+  - id: opening_hours_uses_search
+    user: Is the Ferry Building marketplace open this Sunday?
+    expect:
+      tool_calls:
+        - name: web_search
+      judge: >-
+        The reply gives the caller a direct answer about Sunday hours (or clearly says it could
+        not confirm them) without reading out a URL or a list of sources.
+
+  - id: stable_fact_no_search
+    description: Precision check — searching for timeless facts adds latency on a voice call.
+    user: Quick one — how many minutes are in three hours?
+    expect:
+      no_tool_calls: true
+      max_words: 25
+      judge: The reply answers 180 minutes, briefly.

@@ -1,0 +1,41 @@
+# Prompt manifest: which modules and tools make up each agent profile.
+#
+# - `voice` modules become the GPT-Live voice model's instructions. They are immutable for the
+#   life of a session, so everything the voice needs must be here at session start.
+# - `backend` modules become the instructions of the backend Responses model that GPT-Live
+#   delegates reasoning and tool calls to.
+# - Every module's `requires_tools` must be enabled in the profile's `tools` list.
+# - Variables resolve: `variables` below < profile `variables` < runtime/extra variables.
+version: 1
+
+variables:
+  agent_name: Ava
+  brand_name: Tablesite
+  locale: en-US
+
+# Values injected by the agent at session start (see voice_agent.main). When not supplied
+# (CLI, evals, change detection) they render as `<runtime:name>` placeholders, and they are
+# always excluded from fingerprints so the fingerprint identifies the prompt version, not the day.
+runtime_variables:
+  today: Current local date, e.g. "Friday, 2026-09-25"
+  timezone: IANA timezone of the caller/restaurant area, e.g. America/Los_Angeles
+
+profiles:
+  concierge:
+    description: Dining + general-knowledge concierge
+    variables:
+      city_hint: San Francisco
+    greeting: >-
+      Greet the caller warmly in one short sentence as {{ agent_name }} from {{ brand_name }},
+      then ask how you can help. Do not list your capabilities.
+    voice:
+      - core/identity
+      - core/voice_style
+      - core/guardrails
+      - skills/restaurant_reservations.voice
+      - skills/web_search.voice
+    backend:
+      - backend/tool_policy
+      - skills/restaurant_reservations.backend
+      - skills/web_search.backend
+    tools: [web_search, check_restaurant_availability]

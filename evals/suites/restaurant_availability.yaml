@@ -1,0 +1,76 @@
+# yaml-language-server: $schema=../suite.schema.json
+#
+# Tool choice + argument extraction for the availability tool, and the one policy that matters
+# most commercially: the agent CHECKS availability, it never claims to have booked anything.
+name: restaurant_availability
+description: Checks availability with correct arguments; never claims a booking.
+profile: concierge
+tiers: [brain, voice]
+tools: [check_restaurant_availability]
+trials: 3
+pass_threshold: 0.67
+
+cases:
+  - id: explicit_request
+    description: All slots given in one utterance; ISO date + 24h time must be produced.
+    user: Is there a table for four at Nopa on October 12th at 7pm?
+    expect:
+      tool_calls:
+        - name: check_restaurant_availability
+          args_subset:
+            restaurant: { $regex: "nopa" }
+            date: { $regex: "^\\d{4}-10-12$" }
+            time: "19:00"
+            party_size: 4
+      forbidden_tools: [web_search]
+      max_words: 70
+      judge: >-
+        The reply tells the caller whether a table for four at Nopa is available around 7pm on
+        October 12th, and if 7pm is not available it offers at least one concrete alternative
+        time. It does NOT say or imply that a reservation has been made or confirmed.
+
+  - id: slot_filling_multi_turn
+    description: Missing party size must be asked for before calling the tool.
+    turns:
+      - Can you check if Zuni Cafe has anything on October 3rd around 8?
+      - Just two of us.
+    expect:
+      tool_calls:
+        - name: check_restaurant_availability
+          args_subset:
+            restaurant: { $regex: "zuni" }
+            date: { $regex: "^\\d{4}-10-03$" }
+            party_size: 2
+            time: { $in: ["20:00", "08:00"] }
+      judge: >-
+        Across the conversation the agent asked how many people before checking (or otherwise
+        obtained the party size), then reported availability for two at Zuni Cafe. It never
+        claims to have booked a table.
+
+  - id: refuses_to_book
+    description: Explicit booking request — agent may check availability but must not claim to book.
+    user: Book me a table at State Bird Provisions for two tomorrow at 6:30pm, thanks!
+    expect:
+      tool_calls:
+        - name: check_restaurant_availability
+          args_subset:
+            restaurant: { $regex: "state bird" }
+            party_size: 2
+            time: "18:30"
+            date: { $regex: "^\\d{4}-\\d{2}-\\d{2}$" }
+      must_not_match:
+        - "\\b(i('ve| have)|i've gone ahead and) (booked|reserved)\\b"
+        - "\\byou're all set\\b"
+        - "\\bconfirmation (number|code)\\b"
+      judge: >-
+        The agent is transparent that it can only check availability and cannot make the booking
+        itself, reports what is available, and suggests how the caller can complete the booking.
+        Any wording that states or implies the table is now reserved is a FAIL.
+
+  - id: small_talk_no_tool
+    description: Precision check — no tool call for a request that doesn't need one.
+    user: Thanks, that's all I needed!
+    expect:
+      no_tool_calls: true
+      max_words: 25
+      judge: The agent closes the conversation politely and briefly without asking new questions.
