@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Coroutine
 
 import httpx
 import pytest
@@ -32,7 +32,8 @@ QUERY = AvailabilityQuery(
 
 # MockTransport accepts sync and async handlers.
 Handler = (
-    Callable[[httpx.Request], httpx.Response] | Callable[[httpx.Request], Awaitable[httpx.Response]]
+    Callable[[httpx.Request], httpx.Response]
+    | Callable[[httpx.Request], Coroutine[None, None, httpx.Response]]
 )
 
 

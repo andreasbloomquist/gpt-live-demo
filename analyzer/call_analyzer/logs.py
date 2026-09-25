@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import traceback
-from typing import Any
+from types import TracebackType
 
 # Attributes every LogRecord has; anything else was passed via `extra=`.
 _STANDARD_ATTRS = frozenset(vars(logging.LogRecord("", 0, "", 0, "", (), None))) | {
@@ -70,7 +70,12 @@ def safe_traceback(exc: BaseException) -> str:
     return "".join(parts).rstrip("\n")
 
 
+_ExcInfo = tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None]
+
+
 class KeyValueFormatter(logging.Formatter):
+    """``<time> <LEVEL> <logger>: <message> key=value ...``, with redacted tracebacks."""
+
     def format(self, record: logging.LogRecord) -> str:
         # logging caches the formatted traceback on the record; another handler may have put
         # the unredacted one there, so always format our own.
@@ -84,12 +89,13 @@ class KeyValueFormatter(logging.Formatter):
             line += " " + " ".join(f"{k}={v!r}" for k, v in extras.items())
         return line
 
-    def formatException(self, ei: Any) -> str:
+    def formatException(self, ei: _ExcInfo) -> str:
         _, exc, _ = ei
         return safe_traceback(exc) if exc is not None else ""
 
 
 def configure_logging(level: str = "INFO") -> None:
+    """Route every logger (ours, uvicorn's, the SDK's) through one redacting stderr handler."""
     handler = logging.StreamHandler()
     handler.setFormatter(KeyValueFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     root = logging.getLogger()

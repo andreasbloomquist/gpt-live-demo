@@ -115,7 +115,7 @@ class TTSCache:
         # Concurrent trials share user turns: synthesize (and pay for) each clip once.
         async with self._locks.setdefault(path, asyncio.Lock()):
             if path.is_file():
-                return path.read_bytes()
+                return await asyncio.to_thread(path.read_bytes)
             response = await self.client.audio.speech.create(
                 model=self.model,
                 voice=self.voice,
@@ -123,14 +123,18 @@ class TTSCache:
                 response_format="pcm",
                 instructions=self.INSTRUCTIONS,
             )
-            pcm = response.content
+            pcm: bytes = response.content
             self.cost_usd += len(text) * TTS_USD_PER_1M_CHARS / 1_000_000
-            path.parent.mkdir(parents=True, exist_ok=True)
-            # Write-then-rename so an interrupted run never leaves a truncated clip cached.
-            tmp = path.with_suffix(f".{os.getpid()}.tmp")
-            tmp.write_bytes(pcm)
-            tmp.replace(path)
+            await asyncio.to_thread(_write_atomically, path, pcm)
             return pcm
+
+
+def _write_atomically(path: Path, data: bytes) -> None:
+    """Write-then-rename, so an interrupted run never leaves a truncated clip cached."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f".{os.getpid()}.tmp")
+    tmp.write_bytes(data)
+    tmp.replace(path)
 
 
 def build_microphone() -> Any:

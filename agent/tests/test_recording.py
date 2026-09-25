@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
+import os
+from collections.abc import Callable, Coroutine
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -339,9 +341,16 @@ def test_new_call_id_is_safe_and_unique(room: str, prefix: str) -> None:
 # --- CallRecordExporter ------------------------------------------------------------------
 
 
+Handler = (
+    Callable[[httpx.Request], httpx.Response]
+    | Callable[[httpx.Request], Coroutine[None, None, httpx.Response]]
+)
+
+
 def exporter(
-    tmp_path: Path, handler: Any = None, *, url: str | None = ANALYZER, **kwargs: Any
+    tmp_path: Path, handler: Handler | None = None, *, url: str | None = ANALYZER, **kwargs: Any
 ) -> CallRecordExporter:
+    """An exporter writing under ``tmp_path``, posting to ``handler`` (if any), without delays."""
     return CallRecordExporter(
         tmp_path / "records",
         analyzer_url=url,
@@ -524,7 +533,7 @@ async def test_failed_write_leaves_no_partial_file(
     def broken_replace(src: str, dst: str) -> None:
         raise OSError("disk full")
 
-    monkeypatch.setattr(recording.os, "replace", broken_replace)
+    monkeypatch.setattr(os, "replace", broken_replace)
     result = await exporter(tmp_path, url=None).export(make_record(bundle))
 
     assert result.destination == "failed"
@@ -536,7 +545,7 @@ async def test_export_never_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     def boom(*args: Any, **kwargs: Any) -> str:
         raise RuntimeError("bug")
 
-    monkeypatch.setattr(recording.json, "dumps", boom)
+    monkeypatch.setattr(json, "dumps", boom)
     result = await exporter(tmp_path, url=None).export({"call_id": "ok", "turns": []})
     assert result.destination == "failed"
 

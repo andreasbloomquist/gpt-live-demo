@@ -103,6 +103,7 @@ def error_response(
     details: list[dict[str, Any]] | None = None,
     headers: Mapping[str, str] | None = None,
 ) -> JSONResponse:
+    """The one error shape every endpoint uses: ``{"error": {"code", "message", "details"?}}``."""
     body: dict[str, Any] = {"code": _ERROR_CODES.get(status, "error"), "message": message}
     if details:
         body["details"] = details
@@ -305,7 +306,7 @@ def create_app(
             }
         },
     )
-    async def ingest_call(request: Request) -> Any:
+    async def ingest_call(request: Request) -> JSONResponse | Accepted:
         """Store a CallRecord and queue its analysis.
 
         Idempotent by ``call_id``: re-posting an identical record returns 200 with the current

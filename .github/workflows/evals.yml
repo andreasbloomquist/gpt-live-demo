@@ -3,23 +3,28 @@
 #   plan ──► brain (matrix, cheap) ──► voice (matrix, expensive; only if brain passed) ──► report ──► comment
 #
 # Gates, cheapest first:
-#   1. `plan` fast path: if no behaviour-relevant file changed (docs, frontend, CI), it skips
-#      without rendering anything (seconds). There is deliberately no `on.pull_request.paths`
-#      filter: GitHub applies it to `labeled` events too, so adding `evals:full` to a
-#      docs-only PR would never start the workflow.
-#   2. `plan`: `python -m evals.impact` fingerprints base vs head (rendered prompts, tool
+#   1. Fast path: `plan` finishes in seconds when no behaviour-relevant file changed (docs,
+#      frontend, CI), without rendering anything.
+#   2. Change impact: `python -m evals.impact` fingerprints base vs head (rendered prompts, tool
 #      schemas, normalized ASTs, settings defaults, lockfile) and emits the exact suite x tier
-#      matrix. Whitespace/comment/docs-only edits plan nothing.
-#   3. secrets: fork PRs and repos without OPENAI_API_KEY skip paid jobs with a clear note.
-#      Trust model: paid jobs run PR code with OPENAI_API_KEY. GitHub never gives secrets to
-#      `pull_request` runs from forks, so only people with push access (who could edit this
-#      workflow anyway) can spend. Add required reviewers to the `evals` environment to make
-#      every paid run wait for a maintainer's approval.
-#   4. brain must pass before any voice session is paid for.
-#   5. a hard per-job USD budget inside the runner.
+#      matrix. Whitespace, comment and docs-only edits plan nothing.
+#   3. Spend gate: fork PRs, draft PRs and repos without OPENAI_API_KEY skip the paid jobs,
+#      with a note in the report.
+#   4. Brain must pass before any voice session is paid for.
+#   5. A hard per-job USD budget inside the runner (`--max-cost-usd`).
+#
+# Trust model:
+#   - Paid jobs run PR code with OPENAI_API_KEY. GitHub withholds secrets from fork PRs, so only
+#     people with push access (who could edit this workflow anyway) can spend. Add required
+#     reviewers to the `evals` environment to make every paid run wait for a maintainer.
+#   - `plan` runs the BASE commit's planner, so a PR cannot rewrite the rules that judge it.
+#   - Only `comment` holds a write token, and it runs no repository code.
+#
+# There is deliberately no `on.pull_request.paths` filter: GitHub applies it to `labeled`
+# events too, so adding `evals:full` to a docs-only PR would never start the workflow.
 #
 # Overrides: PR labels `evals:full` (run everything) / `evals:skip` (run nothing);
-# workflow_dispatch inputs; nightly schedule runs everything on the default branch.
+# workflow_dispatch inputs; the nightly schedule runs everything on the default branch.
 name: Evals
 
 on:
@@ -84,15 +89,18 @@ jobs:
       can_spend: ${{ steps.gate.outputs.can_spend }}
       gate_reason: ${{ steps.gate.outputs.reason }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Check out (full history)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
           fetch-depth: 0 # the detector exports the merge-base tree with `git archive`
-      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
-      - run: uv sync --locked
+      - name: Install dependencies
+        run: uv sync --locked
 
       - name: Resolve base ref
         id: refs
@@ -140,6 +148,7 @@ jobs:
           # Label names are user-controlled: pass them via env, never interpolate into the script.
           EVALS_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
           EVALS_FORCE_ALL: ${{ steps.planner.outputs.force == 'true' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.force_all) }}
+          # Same text as PLANNER_CHANGED in evals/impact/cli.py.
           EVALS_FORCE_REASON: "${{ steps.planner.outputs.force == 'true' && 'planner code changed: running everything' || '' }}"
           SUITES: ${{ inputs.suites || 'all' }}
           TIERS: ${{ inputs.tiers || 'all' }}
@@ -171,7 +180,8 @@ jobs:
             echo "reason=" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - name: Upload plan
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: eval-plan
           path: eval-plan.json
@@ -194,14 +204,17 @@ jobs:
       FINGERPRINTS: ${{ needs.plan.outputs.brain_fingerprints }}
       MAX_COST_USD: ${{ inputs.max_cost_usd || vars.EVALS_MAX_COST_USD || '3' }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
-      - run: uv sync --locked --group evals
+      - name: Install dependencies (with the evals group)
+        run: uv sync --locked --group evals
       - name: Run brain tier
         run: >-
           uv run python -m evals run --tier brain --suite "$SUITE"
@@ -210,8 +223,9 @@ jobs:
       - name: Job summary
         if: always()
         run: cat "$RESULTS_DIR"/*.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - name: Upload results
         if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: eval-results-brain-${{ matrix.suite }}
           path: ${{ env.RESULTS_DIR }}/
@@ -241,19 +255,23 @@ jobs:
       FINGERPRINTS: ${{ needs.plan.outputs.voice_fingerprints }}
       MAX_COST_USD: ${{ inputs.max_cost_usd || vars.EVALS_MAX_COST_USD || '3' }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
-      - run: uv sync --locked --group evals
+      - name: Install dependencies (with the evals group)
+        run: uv sync --locked --group evals
       # Synthesized user turns are deterministic per (text, TTS model, voice): cache them.
       # One cache per suite: matrix jobs sharing a key would race, the first save would win,
       # and every other suite would get an exact-key hit without its audio (and never save).
       # PR runs can read caches from the default branch but only write to their own PR scope.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - name: Cache synthesized user turns
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: evals/.cache/tts
           key: eval-tts-${{ matrix.suite }}-${{ hashFiles('evals/suites/*.yaml', 'evals/runners/voice.py') }}
@@ -266,8 +284,9 @@ jobs:
       - name: Job summary
         if: always()
         run: cat "$RESULTS_DIR"/*.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - name: Upload results
         if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: eval-results-voice-${{ matrix.suite }}
           path: ${{ env.RESULTS_DIR }}/
@@ -280,22 +299,29 @@ jobs:
   report:
     name: Report
     needs: [plan, brain, voice]
-    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    if: >-
+      !cancelled()
+      && needs.plan.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
-      - run: uv sync --locked
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Download plan
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: eval-plan
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - name: Download results
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: eval-results-*
           path: ${{ env.RESULTS_DIR }}
@@ -317,7 +343,8 @@ jobs:
           uv run python -m evals report --results-dir "$RESULTS_DIR" --plan eval-plan.json \
             --output eval-report.md "${notes[@]}"
           cat eval-report.md >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - name: Upload report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: eval-report
           path: eval-report.md
@@ -339,13 +366,16 @@ jobs:
     permissions:
       pull-requests: write # create/update the sticky comment
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - name: Download report
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: eval-report
-      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+      - name: Create or update the sticky comment
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const fs = require('fs');
+            // Must match COMMENT_MARKER in evals/report.py.
             const marker = '<!-- gpt-live-evals-report -->';
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             let body = fs.readFileSync('eval-report.md', 'utf8');

@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 from helpers import make_settings
+from livekit.agents import AgentServer
 from pydantic import ValidationError
 
 from voice_agent import main
@@ -110,7 +111,7 @@ async def test_worker_validates_before_it_starts(monkeypatch: pytest.MonkeyPatch
     async def fake_run(self: object, *, devmode: bool, unregistered: bool) -> None:
         started.append({"devmode": devmode, "unregistered": unregistered})
 
-    monkeypatch.setattr(main.AgentServer, "run", fake_run)
+    monkeypatch.setattr(AgentServer, "run", fake_run)
 
     exits: list[str] = []
     monkeypatch.setattr(main, "_exit_with_error", exits.append)
