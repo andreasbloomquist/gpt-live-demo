@@ -33,7 +33,6 @@ expectations about them are *skipped* in this tier (the brain tier asserts them)
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import difflib
 import hashlib
 import json
@@ -436,8 +435,10 @@ class VoiceRunner:
         finally:
             if mic is not None:
                 mic.close()
-            with contextlib.suppress(Exception):
+            try:
                 await session.aclose()
+            except Exception:
+                logger.warning("closing the voice session failed", exc_info=True)
         elapsed = time.monotonic() - started
 
         transcript = _transcript_from_history(history, self._unobservable)

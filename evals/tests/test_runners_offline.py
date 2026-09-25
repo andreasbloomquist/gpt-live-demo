@@ -341,3 +341,77 @@ def test_crashed_trial_is_charged_its_reservation() -> None:
         t.crashed and "provider down" in (t.error or "") for c in result.cases for t in c.trials
     )
     assert budget.spent_usd == pytest.approx(0.1 * len(result.cases))
+    assert result.cost_usd == pytest.approx(budget.spent_usd)  # results match what was charged
+
+
+def test_failed_judge_call_is_charged_its_estimate() -> None:
+    from evals.runners.harness import HarnessOptions, _run_trial
+    from evals.runners.judge import estimate_judge_usd
+    from evals.schema import Expect
+
+    async def parse(**kwargs: Any) -> Any:
+        raise ValueError("unparseable")
+
+    suite = load_suites(names=["restaurant_availability"])["restaurant_availability"]
+    case = suite.cases[0].model_copy(update={"expect": Expect(judge="Be polite.")})
+    judge_client = SimpleNamespace(responses=SimpleNamespace(parse=parse))
+    result = asyncio.run(
+        _run_trial(_CheapRunner(), suite, case, 1, judge_client, None, HarnessOptions())
+    )
+    assert not result.passed and "judge failed" in (result.error or "")
+    expected = 0.01 + estimate_judge_usd("Be polite.", result.transcript)
+    assert result.cost_usd == pytest.approx(expected) and result.cost_usd > 0.01
+
+
+@pytest.mark.parametrize(
+    ("model", "sends_reasoning"),
+    [("gpt-5.6-luna", True), ("o4-mini", True), ("gpt-4.1-mini", False), ("gpt-4o", False)],
+)
+def test_judge_sends_reasoning_only_to_reasoning_models(model: str, sends_reasoning: bool) -> None:
+    from evals.runners.judge import judge_transcript
+
+    seen: dict[str, Any] = {}
+
+    async def parse(**kwargs: Any) -> SimpleNamespace:
+        seen.update(kwargs)
+        return SimpleNamespace(output_parsed=None, usage=None)
+
+    client = SimpleNamespace(responses=SimpleNamespace(parse=parse))
+    asyncio.run(judge_transcript(client, rubric="r", transcript="t", model=model))
+    assert ("reasoning" in seen) is sends_reasoning
+
+
+def test_no_tool_calls_is_skipped_when_calls_are_unobservable() -> None:
+    from evals.runners.assertions import ToolCall, Transcript
+    from evals.schema import Expect
+
+    expect = Expect(no_tool_calls=True)
+    hidden = frozenset({"web_search"})
+    quiet = Transcript([("assistant", "hi")], unobservable_tools=hidden)
+    (check,) = check_expectations(expect, quiet)
+    assert check.skipped and check.passed and "cannot observe" in check.detail
+    seen = Transcript([("assistant", "hi")], [ToolCall("t", {})], unobservable_tools=hidden)
+    (check,) = check_expectations(expect, seen)
+    assert not check.passed and not check.skipped  # a visible call still fails
+    (check,) = check_expectations(expect, Transcript([("assistant", "hi")]))
+    assert check.passed and not check.skipped
+
+
+def test_brain_runner_records_incomplete_responses() -> None:
+    class _Truncated:
+        async def create(self, **kwargs: Any) -> SimpleNamespace:
+            return SimpleNamespace(
+                id="r",
+                output=[],
+                usage=None,
+                output_text="Seven works for",
+                status="incomplete",
+                incomplete_details=SimpleNamespace(reason="max_output_tokens"),
+            )
+
+    suite = load_suites(names=["restaurant_availability"])["restaurant_availability"]
+    case = next(c for c in suite.cases if c.id == "explicit_request")
+    runner = BrainRunner(client=SimpleNamespace(responses=_Truncated()))
+    asyncio.run(runner.setup(suite))
+    conv = asyncio.run(runner.converse(suite, case, 1))
+    assert conv.meta["incomplete_responses"] == ["max_output_tokens"]

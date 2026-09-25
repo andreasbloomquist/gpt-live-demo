@@ -76,6 +76,7 @@ class BrainRunner:
         first_latency: float | None = None
         started = time.monotonic()
         previous_id: str | None = None
+        incomplete: list[str] = []
         opts = self._options
         request: dict[str, Any] = {
             "model": opts["model"],
@@ -100,6 +101,11 @@ class BrainRunner:
                 if first_latency is None:
                     first_latency = round(time.monotonic() - t0, 3)
                 previous_id = response.id
+                if getattr(response, "status", None) == "incomplete":
+                    # e.g. max_output_tokens hit: the reply may be cut off, which explains
+                    # a failure that would otherwise look like the model's choice.
+                    details = getattr(response, "incomplete_details", None)
+                    incomplete.append(str(getattr(details, "reason", None) or "unknown"))
                 if response.usage is not None:
                     cost += text_cost(
                         opts["model"], response.usage.input_tokens, response.usage.output_tokens
@@ -140,7 +146,7 @@ class BrainRunner:
             cost_usd=cost,
             latency_s=time.monotonic() - started,
             first_response_latency_s=first_latency,
-            meta={"response_id": previous_id},
+            meta={"response_id": previous_id, "incomplete_responses": incomplete},
         )
 
     async def _execute(self, name: str, arguments: str, call_id: str = "eval") -> tuple[str, bool]:

@@ -21,7 +21,7 @@ from evals.runners.common import (
     SuiteResult,
     TrialResult,
 )
-from evals.runners.judge import judge_transcript
+from evals.runners.judge import estimate_judge_usd, judge_transcript
 from evals.schema import Case, Suite, Tier
 
 logger = logging.getLogger("evals")
@@ -98,10 +98,11 @@ async def run_suite(
                 trial_result = await _run_trial(
                     runner, suite, case, trial, judge_client, today, options
                 )
-            # A crashed conversation reports no usage although it may have spent money before
-            # failing; charge its reservation so the ceiling still holds.
-            spent = reserved if trial_result.crashed else trial_result.cost_usd
-            budget.settle(reserved, spent)
+            if trial_result.crashed:
+                # A crashed conversation reports no usage although it may have spent money
+                # before failing: charge its reservation, in the budget and in the results.
+                trial_result.cost_usd = reserved
+            budget.settle(reserved, trial_result.cost_usd)
             case_result.trials.append(trial_result)
             logger.info(
                 "%s/%s/%s trial %d: %s%s",
@@ -165,6 +166,8 @@ async def _run_trial(
         except Exception as exc:
             result.passed = False
             result.error = f"judge failed: {type(exc).__name__}: {exc}"
+            # The call may have been billed before failing (e.g. an unparseable reply).
+            result.cost_usd += estimate_judge_usd(case.expect.judge, result.transcript)
         else:
             result.judge = verdict
             result.cost_usd += judge_cost

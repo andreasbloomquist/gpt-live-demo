@@ -112,7 +112,8 @@ class TrialResult:
     cost_usd: float = 0.0
     meta: dict[str, Any] = field(default_factory=dict)
     crashed: bool = False
-    """The conversation raised, so ``cost_usd`` is unknown (the budget charges the estimate)."""
+    """The conversation raised, so its real cost is unknown: ``cost_usd`` is the reservation
+    the budget charged for it."""
 
     @property
     def failure_summary(self) -> str:

@@ -163,12 +163,14 @@ def check_expectations(
 
     if expect.no_tool_calls:
         names = [c.name for c in observable_calls]
-        detail = "" if not names else f"unexpected calls: {names}"
-        if unobservable:
-            detail = (detail + "; " if detail else "") + (
-                f"cannot observe {sorted(unobservable)} in this tier"
-            )
-        checks.append(CheckResult("no_tool_calls", not names, detail))
+        if names:
+            checks.append(CheckResult("no_tool_calls", False, f"unexpected calls: {names}"))
+        elif unobservable:
+            # No visible calls, but a call to an unobservable tool could still have happened.
+            detail = f"cannot observe {sorted(unobservable)} in this tier"
+            checks.append(CheckResult("no_tool_calls", True, detail, skipped=True))
+        else:
+            checks.append(CheckResult("no_tool_calls", True))
 
     for tool in expect.forbidden_tools:
         if tool in unobservable:

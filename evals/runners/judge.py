@@ -42,6 +42,20 @@ Rules:
 Explain briefly, then give the verdict."""
 
 
+_REASONING_MODEL = re.compile(r"^(gpt-5|o\d)")
+"""Models that accept the ``reasoning`` parameter (``gpt-5*`` and the ``o1``/``o3``/``o4``
+series). Others reject it with a 400, so a non-reasoning ``EVALS_JUDGE_MODEL`` gets none."""
+
+JUDGE_OUTPUT_TOKENS_ESTIMATE = 400
+
+
+def estimate_judge_usd(rubric: str, transcript: str, model: str = JUDGE_MODEL) -> float:
+    """Pessimistic cost of one judge call (~4 characters per token, plus the instructions),
+    charged when the call fails without reporting usage."""
+    input_tokens = (len(JUDGE_INSTRUCTIONS) + len(rubric) + len(transcript)) // 4 + 100
+    return text_cost(model, input_tokens, JUDGE_OUTPUT_TOKENS_ESTIMATE)
+
+
 class _Verdict(BaseModel):
     reasoning: str = Field(description="Two or three sentences citing the transcript.")
     verdict: bool = Field(description="true = PASS, false = FAIL")
@@ -51,12 +65,15 @@ async def judge_transcript(
     client: Any, *, rubric: str, transcript: str, model: str = JUDGE_MODEL
 ) -> tuple[JudgeVerdict, float]:
     """Grade ``transcript`` with ``rubric``. Returns (verdict, cost_usd)."""
+    extra: dict[str, Any] = {}
+    if _REASONING_MODEL.match(model):
+        extra["reasoning"] = {"effort": "low"}
     response = await client.responses.parse(
         model=model,
         instructions=JUDGE_INSTRUCTIONS,
         input=f"<rubric>\n{rubric}\n</rubric>\n\n<transcript>\n{_fence(transcript)}\n</transcript>",
         text_format=_Verdict,
-        reasoning={"effort": "low"},
+        **extra,
     )
     parsed: _Verdict | None = response.output_parsed
     usage = getattr(response, "usage", None)
