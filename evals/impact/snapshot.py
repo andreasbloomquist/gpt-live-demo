@@ -92,9 +92,10 @@ def run_probe(tree: Path, evals_root: Path, python: str = sys.executable) -> dic
     if proc.returncode != 0 or not proc.stdout.strip():
         return {"ok": False, "error": f"probe exited {proc.returncode}: {proc.stderr[-2000:]}"}
     try:
-        return json.loads(proc.stdout)
+        result: dict[str, Any] = json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
         return {"ok": False, "error": f"probe emitted invalid JSON: {exc}"}
+    return result
 
 
 def load_suite_infos(tree: Path) -> dict[str, SuiteInfo]:

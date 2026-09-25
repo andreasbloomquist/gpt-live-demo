@@ -69,7 +69,7 @@ class BrainRunner:
             "backend_model": self._options.get("model"),
             "reasoning": self._options.get("reasoning"),
             "text": self._options.get("text"),
-            "prompt_fingerprint": getattr(bundle, "fingerprint", None),
+            "prompt_fingerprint": bundle.fingerprint,
             "tools": [schema_tool_name(s) for s in self._schemas],
         }
 

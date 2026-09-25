@@ -378,7 +378,7 @@ class VoiceRunner:
             "backend_model": self._settings.gpt_live_backend_model,
             "input_mode": self.input_mode,
             "tts": f"{self.tts.model}/{self.tts.voice}" if self.input_mode == "audio" else None,
-            "prompt_fingerprint": getattr(bundle, "fingerprint", None),
+            "prompt_fingerprint": bundle.fingerprint,
         }
 
     def estimate_trial_usd(self, suite: Suite, case: Case) -> float:

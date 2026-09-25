@@ -26,19 +26,20 @@ def load_settings() -> Any:
 
 
 def compose_bundle(profile: str, settings: Any, *, runtime_variables: bool = True) -> Any:
-    """Compose a profile like ``voice_agent.main.compose_session_prompts`` does.
+    """Compose a profile's prompt bundle.
 
-    ``runtime_variables=True`` injects the real ``today``/``timezone`` so relative dates
-    ("tomorrow") resolve as in production; ``False`` keeps the stable placeholders (dry-run).
+    ``runtime_variables=True`` composes it exactly as a new session does
+    (``compose_session_prompts``), with the real ``today``/``timezone`` so relative dates
+    ("tomorrow") resolve as in production; ``False`` keeps the stable placeholders, which is
+    all ``validate``/``--dry-run`` need.
     """
+    if runtime_variables:
+        from voice_agent.main import compose_session_prompts
+
+        return compose_session_prompts(profile, settings=settings)
     from voice_agent.prompts import PromptComposer
 
-    extra: dict[str, str] | None = None
-    if runtime_variables:
-        from voice_agent.runtime import runtime_prompt_variables
-
-        extra = runtime_prompt_variables(settings)
-    return PromptComposer().compose(profile, extra_variables=extra)
+    return PromptComposer().compose(profile)
 
 
 def resolve_tools(bundle: Any, settings: Any) -> list[Any]:

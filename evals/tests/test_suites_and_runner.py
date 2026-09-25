@@ -9,6 +9,7 @@ import asyncio
 import datetime as dt
 import json
 from pathlib import Path
+from typing import Any
 from xml.etree import ElementTree as ET
 
 import pytest
@@ -45,8 +46,8 @@ def test_committed_json_schema_is_up_to_date() -> None:
     )
 
 
-def _suite(**over: object) -> dict:
-    data: dict = {
+def _suite(**over: object) -> dict[str, Any]:
+    data: dict[str, Any] = {
         "name": "s",
         "profile": "concierge",
         "tiers": ["brain"],
@@ -83,7 +84,7 @@ def _suite(**over: object) -> dict:
         ),
     ],
 )
-def test_suite_validation_rejects(override: dict, message: str) -> None:
+def test_suite_validation_rejects(override: dict[str, Any], message: str) -> None:
     with pytest.raises(ValidationError, match=message):
         Suite.model_validate(_suite(**override))
 
@@ -183,7 +184,7 @@ class _FakeRunner:
         self.passing = passing
         self.calls = 0
 
-    async def setup(self, suite: Suite) -> dict:
+    async def setup(self, suite: Suite) -> dict[str, Any]:
         return {"model": "fake"}
 
     def estimate_trial_usd(self, suite: Suite, case: object) -> float:

@@ -55,7 +55,7 @@ jobs:
               - '.github/workflows/ci.yml'
 
   lint:
-    name: Lint (ruff)
+    name: Lint and typecheck (ruff, mypy)
     needs: changes
     if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
@@ -68,9 +68,12 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
-      - run: uv sync --locked
+      # The evals group brings the OpenAI SDK, so mypy checks evals/ against real types.
+      - run: uv sync --locked --group evals
       - run: uv run ruff check .
       - run: uv run ruff format --check .
+      - name: Typecheck (mypy)
+        run: uv run mypy agent/voice_agent evals
 
   test:
     name: Tests (pytest)

@@ -120,13 +120,13 @@ def match_value(expected: Any, actual: Any, *, today: dt.date | None = None) -> 
             return str(actual).strip() == (base + dt.timedelta(days=int(arg))).isoformat()
         raise ValueError(f"unknown matcher {op}")
     if isinstance(expected, bool) or isinstance(actual, bool):
-        return expected == actual
+        return bool(expected == actual)
     if isinstance(expected, (int, float)):
         try:
             return float(actual) == float(expected)
         except (TypeError, ValueError):
             return False
-    return _norm(expected) == _norm(actual)
+    return bool(_norm(expected) == _norm(actual))
 
 
 def _call_matches(exp: ExpectedToolCall, call: ToolCall, today: dt.date | None) -> str | None:

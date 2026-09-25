@@ -71,7 +71,8 @@ def _extract_all(tar: tarfile.TarFile, dest: Path) -> None:
 
 def _stderr(proc: subprocess.Popen[bytes]) -> str:
     assert proc.stderr is not None
-    return proc.stderr.read().decode().strip()
+    stderr: bytes = proc.stderr.read()
+    return stderr.decode().strip()
 
 
 def changed_files(repo: Path, base: str, head: str | None) -> list[str]:

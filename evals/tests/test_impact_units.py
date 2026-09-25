@@ -42,7 +42,7 @@ def test_prompt_normalization_keeps_html_comments_that_reach_the_model() -> None
     from voice_agent.prompts import normalize_prompt_text
 
     def rendered(secret: str) -> str:
-        return normalize_prompt_text(f"Say <!<!-- x -->-- {secret} -->")
+        return str(normalize_prompt_text(f"Say <!<!-- x -->-- {secret} -->"))
 
     assert rendered("hi") == "Say <!-- hi -->"
     assert norm.normalize_prompt_for_fingerprint(
@@ -320,7 +320,7 @@ def test_probe_timeout_is_a_tree_problem_not_a_crash(monkeypatch: pytest.MonkeyP
     def hang(*args: object, **kwargs: object) -> None:
         raise subprocess.TimeoutExpired(cmd="probe", timeout=1)
 
-    monkeypatch.setattr(snapshot.subprocess, "run", hang)
+    monkeypatch.setattr(subprocess, "run", hang)
     result = snapshot.run_probe(Path("."), Path("."))
     assert result["ok"] is False and "timed out" in result["error"]
 
