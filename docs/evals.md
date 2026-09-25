@@ -311,8 +311,9 @@ flowchart LR
    - `no_tool_calls` and `forbidden_tools` guard precision.
    - `max_words` applies to the final spoken reply, which is all agent speech after the last user
      turn. In voice, a filler like "let me check…" and the answer arrive as separate messages.
-   - `must_not_match` regexes run over everything the agent said after the first user turn. The
-     greeting is excluded.
+   - `must_not_match` regexes (case-insensitive, multiline) run over *all* assistant speech after
+     the first user turn, not just the final reply. The greeting is excluded because it isn't a
+     response to the caller.
 2. **The LLM judge** (`runners/judge.py`) runs **only if every deterministic check passed**. That
    saves money, and a judge should never be asked to excuse a wrong tool call. The judge:
    - sees only the rubric and the transcript, never the agent's prompts, so it grades behaviour
@@ -329,27 +330,39 @@ flowchart LR
 3. **Unobservable is not passed.** In the voice tier, expectations about `web_search` are recorded
    as *skipped*, with the detail "not observable in this tier".
 
-### Trials, thresholds, pass^k and pass@1
+### Trials, thresholds and pass^k
 
 Each case runs `trials` times (suite default 3; a case can override it; the maximum is 20) and
 **passes if `pass_rate ≥ pass_threshold`**. The default threshold of `0.66` means 2 of 3. The
 suite passes only if every case passes.
 
-Reports show two numbers per case (`runners/common.py`):
+Each case in the results JSON carries `{pass_rate, pass_hat_k, k}` (`runners/common.py`):
 
-- **pass@1**: the chance that a single attempt succeeds. With the unbiased estimator this equals
-  the plain pass rate, c/n.
-- **pass^k**: the chance that *all k* attempts succeed, `C(c,k) / C(n,k)`. This is the number
-  that matters for a production voice agent. Every caller gets exactly one sample, so an agent
-  that is right 2 times out of 3 fails one caller in three. The more common pass@k ("at least
-  one of k succeeded") flatters nondeterministic systems. It works as a metric for code
-  generation, where a person reviews the attempts, but it is the wrong metric for a phone call.
+- **`pass_rate`**: c/n, the share of trials that passed. It is also the unbiased estimate of
+  pass@1, the chance that a single attempt succeeds, so it isn't reported twice.
+- **`pass_hat_k`**, shown as **pass^2**: the chance that *two independent attempts both* succeed.
+  `k` is fixed at 2 (`PASS_HAT_K`), and the value is the unbiased estimate `C(c,2) / C(n,2)`:
+  of all the pairs of trials you could pick, the share where both passed.
+
+  This is the reliability number for a production voice agent. Every caller gets exactly one
+  sample, and you have many callers. Take a case that passed 2 of 3 trials. Its pass rate is 67%,
+  but its pass^2 is 1/3, because only one of the three possible pairs of trials passed twice.
+  "Usually right" drops quickly once you ask it to be right repeatedly. The more common pass@k
+  ("at least one of k succeeded") goes the other way and flatters nondeterministic systems. It
+  suits code generation, where a person reviews the attempts. It is the wrong metric for a phone
+  call.
+
+  `k` is fixed rather than set to the trial count so the number is comparable across cases and
+  runs. With k equal to the trial count, pass^k could only ever be 0 or 1. When fewer than 2
+  trials ran (`trials: 1`, or a case stopped early after it had already failed), `pass_hat_k` is
+  `null` and the report shows "—" instead of a made-up number. The summary table reports the
+  worst case per suite as **min pass^2**.
 
 Two policies keep the numbers honest and the cost down:
 
 - **Early stop on failure, never on success.** Once a case can no longer reach its threshold
   (two failures out of three), its remaining trials are skipped. Passing cases always run every
-  trial, so pass^k stays meaningful. A crashed trial counts as a failed trial, not a crashed run.
+  trial, so the pass rate and pass^2 use every sample. A crashed trial counts as a failed trial, not a crashed run.
 - **Hard budget.** `--max-cost-usd` *reserves* a pessimistic estimate before each trial starts.
   The estimate is the larger of the static estimate and the most expensive trial seen so far.
   Concurrent trials together therefore cannot overshoot the cap. Real cost comes from reported
@@ -417,9 +430,10 @@ A snapshot is a flat map of `{component_key: digest}`. The planner diffs the two
 | `tool.schema:<tool>` | the tool's JSON exactly as the backend model sees it | brain + voice of suites whose *profile exposes* the tool, even if no case calls it |
 | `tool.impl:<tool>` | normalized AST of the files in the tool's `source_modules` | **brain** tier of suites that *declare* the tool in `tools` |
 | `code.core` | `voice_agent/__init__.py`, `voice_agent/prompts/`, `tools/__init__.py`, `tools/registry.py` | everything |
-| `code.voice_runtime` | `agent.py`, `model.py`, `main.py` | voice tier of every suite |
+| `code.backend_runtime` | `model.py`, which builds the GPT-Live model *and* `build_responses_options`, the backend config the brain tier reuses | brain + voice of every suite |
+| `code.voice_runtime` | `agent.py`, `main.py` | voice tier of every suite |
 | `code.other:<path>` | any other agent module (e.g. `runtime.py`) | everything (unknown means conservative) |
-| `config.voice:<field>` | `Settings` defaults for `gpt_live_model`, `gpt_live_voice` | voice tier of every suite |
+| `config.voice:<field>` | `Settings` defaults for `gpt_live_model` and `gpt_live_voice`, the only voice-only settings | voice tier of every suite |
 | `config.shared:<field>` | every other behavioural `Settings` default | brain + voice of every suite |
 | `config.logic` | the rest of `config.py` (validators, helpers) | brain + voice of every suite |
 | `suite:<name>` | the suite YAML, parsed | that suite's tiers |
@@ -481,7 +495,7 @@ re-wraps a bullet across two lines with extra spaces, and inserts two blank line
 heading in `prompts/modules/core/voice_style.md`:
 
 ```text
-change-impact plan  base=90814b0ad07f  head=e4d0ffbd685e
+change-impact plan  base=fd73e0420b2e  head=73ae220cbc4e
   nothing to run
   skip brain conversation_style: no behaviour-affecting change for this tier
   skip voice conversation_style: no behaviour-affecting change for this tier
@@ -499,12 +513,12 @@ list into a loose one, which is a structural change.
 Only the voice tier runs, because the backend never sees voice instructions:
 
 ```text
-change-impact plan  base=e4d0ffbd685e  head=16f60ce5a98a
-  RUN  voice conversation_style  [fp 968e581f670d39a8]
+change-impact plan  base=73ae220cbc4e  head=c3ce6f64c85c
+  RUN  voice conversation_style  [fp c188dcd83752a8c1]
          - voice prompt of profile `concierge` changed (+1/-1 normalized lines)
-  RUN  voice restaurant_availability  [fp ba711e9c94eea20c]
+  RUN  voice restaurant_availability  [fp b433407ccf4d60ac]
          - voice prompt of profile `concierge` changed (+1/-1 normalized lines)
-  RUN  voice web_search  [fp 1b5ab42d470fe811]
+  RUN  voice web_search  [fp 3be3cc7cb262e25f]
          - voice prompt of profile `concierge` changed (+1/-1 normalized lines)
   skip brain conversation_style: no behaviour-affecting change for this tier
   skip brain restaurant_availability: no behaviour-affecting change for this tier
@@ -515,12 +529,12 @@ change-impact plan  base=e4d0ffbd685e  head=16f60ce5a98a
 change is model-visible, so both tiers run for every suite on the profile, `web_search` included:
 
 ```text
-change-impact plan  base=16f60ce5a98a  head=2bf76d990b59
-  RUN  brain conversation_style  [fp d1e01e3a10c8125e]
+change-impact plan  base=c3ce6f64c85c  head=d045c84d5ed1
+  RUN  brain conversation_style  [fp b534b2d832bec263]
          - model-visible schema of tool `check_restaurant_availability` changed
-  RUN  voice conversation_style  [fp 5f3d71bd1e46cd96]
+  RUN  voice conversation_style  [fp d4c51a97e936d1b2]
          - model-visible schema of tool `check_restaurant_availability` changed
-  RUN  brain restaurant_availability  [fp 99e6df372e6d03dc]
+  RUN  brain restaurant_availability  [fp ef4a96e64e8a7aab]
          - model-visible schema of tool `check_restaurant_availability` changed
   ...  (voice restaurant_availability, brain + voice web_search: same reason)
 ```
@@ -529,7 +543,7 @@ change-impact plan  base=16f60ce5a98a  head=2bf76d990b59
 file. The model never sees that text, so nothing runs:
 
 ```text
-change-impact plan  base=2bf76d990b59  head=bc8cc380c64e
+change-impact plan  base=d045c84d5ed1  head=3ac8aa33c850
   nothing to run
   skip brain conversation_style: no behaviour-affecting change for this tier
   ...
@@ -540,10 +554,10 @@ instead of 1/7). The brain tier runs for the two suites that *declare* the tool.
 `web_search` is skipped, and so is every voice run:
 
 ```text
-change-impact plan  base=bc8cc380c64e  head=119d5b81f22d
-  RUN  brain conversation_style  [fp 55b1f68eab419844]
+change-impact plan  base=3ac8aa33c850  head=26116dba5c7e
+  RUN  brain conversation_style  [fp d00ab2110e430cf0]
          - implementation of tool `check_restaurant_availability` changed (normalized AST)
-  RUN  brain restaurant_availability  [fp 4356be91dd5a5475]
+  RUN  brain restaurant_availability  [fp 36a018de9c4153c8]
          - implementation of tool `check_restaurant_availability` changed (normalized AST)
   skip voice conversation_style: no behaviour-affecting change for this tier
   skip voice restaurant_availability: no behaviour-affecting change for this tier
@@ -555,7 +569,7 @@ change-impact plan  base=bc8cc380c64e  head=119d5b81f22d
 or rendered:
 
 ```text
-change-impact plan  base=119d5b81f22d  head=3e5a4db0b26a
+change-impact plan  base=26116dba5c7e  head=0acad99bf94e
   note: fast path: no behaviour-relevant files changed (2 file(s): README.md, docs/tools.md)
   nothing to run
   skip brain conversation_style: no behaviour-relevant files changed (2 file(s): README.md, docs/tools.md)
@@ -566,7 +580,7 @@ change-impact plan  base=119d5b81f22d  head=3e5a4db0b26a
 voice tier only:
 
 ```text
-  RUN  voice conversation_style  [fp 0ffea925873da0fc]
+  RUN  voice conversation_style  [fp e21915ce290c1309]
          - setting `gpt_live_voice` default: 'marin' → 'cedar'
   ...  (voice restaurant_availability, voice web_search)
   skip brain conversation_style: no behaviour-affecting change for this tier
@@ -575,10 +589,23 @@ voice tier only:
 Changing backend reasoning effort (`"low"` → `"medium"`) runs both tiers for every suite:
 
 ```text
-  RUN  brain conversation_style  [fp b896c724ebde5fae]
+  RUN  brain conversation_style  [fp 85ca8c3430c1bfe1]
          - setting `gpt_live_backend_reasoning_effort` default: 'low' → 'medium'
-  RUN  voice conversation_style  [fp 91bc177bbc15dc3b]
+  RUN  voice conversation_style  [fp f8700637b6845d6e]
          - setting `gpt_live_backend_reasoning_effort` default: 'low' → 'medium'
+  ...  (all six suite x tier pairs)
+```
+
+**7. Change the backend options in `model.py`** (`parallel_tool_calls=True` → `False` inside
+`build_responses_options`). The brain tier reuses that function as its request config, so
+`code.backend_runtime` runs both tiers for every suite:
+
+```text
+change-impact plan  base=ad8ff4c3d6b5  head=837dccc6de14
+  RUN  brain conversation_style  [fp 54b94284cef2957b]
+         - model construction code (model.py, incl. backend options) changed (normalized AST)
+  RUN  voice conversation_style  [fp c2de907a02e355c3]
+         - model construction code (model.py, incl. backend options) changed (normalized AST)
   ...  (all six suite x tier pairs)
 ```
 
@@ -588,7 +615,7 @@ scenario 4:
 ```text
 brain_matrix={"suite":["conversation_style","restaurant_availability"]}
 run_brain=true
-brain_fingerprints={"conversation_style":"55b1f68eab419844","restaurant_availability":"4356be91dd5a5475"}
+brain_fingerprints={"conversation_style":"d00ab2110e430cf0","restaurant_availability":"36a018de9c4153c8"}
 voice_matrix={"suite":[]}
 run_voice=false
 voice_fingerprints={}
@@ -599,7 +626,7 @@ any=true
 
 Every planned run carries a **fingerprint**: a hash of every head component that can affect that
 (suite, tier) pair. Compare the brain `conversation_style` fingerprint after scenario 4
-(`55b1f68eab419844`) with a forced `evals:full` plan for the docs-only commit that followed it.
+(`d00ab2110e430cf0`) with a forced `evals:full` plan for the docs-only commit that followed it.
 That plan printed the same value, because a docs change can't change the behaviour under test.
 Two commits with equal fingerprints should produce the same eval results, apart from sampling
 noise. The runner stores the fingerprint in every result file (`--fingerprints`) and in the JUnit
@@ -632,7 +659,7 @@ before they are allowed into a CI matrix.
 
 ```mermaid
 flowchart LR
-    Trig["pull_request (paths: agent/, prompts/, evals/, uv.lock)<br/>workflow_dispatch<br/>schedule 07:17 UTC nightly"] --> Plan
+    Trig["pull_request (every PR event, no paths filter)<br/>workflow_dispatch<br/>schedule 07:17 UTC nightly"] --> Plan
     Plan["plan<br/>evals.impact plan --format github<br/>+ fork gate"] -- "run_brain and can_spend" --> Brain
     Plan -- "run_voice and can_spend" --> Voice
     Brain["brain matrix<br/>one job per suite<br/>max-parallel 3, env: evals"] -- "success or skipped" --> Voice
@@ -643,7 +670,11 @@ flowchart LR
 
 The gates run from cheapest to most expensive:
 
-1. **`paths` filter.** A PR that touches nothing agent-related never starts the workflow.
+1. **Fast path in `plan`.** Every PR event starts the workflow; there is deliberately no
+   `on.pull_request.paths` filter, because GitHub applies it to `labeled` events too and adding
+   `evals:full` to a docs-only PR would then do nothing. Instead, when no behaviour-relevant file
+   changed (docs, frontend, CI), the planner skips without exporting or rendering anything, and
+   the paid jobs never start. That takes seconds.
 2. **`plan` job.** It needs a full clone (`fetch-depth: 0`) to export the merge-base tree. It emits
    `brain_matrix`, `voice_matrix`, per-tier fingerprints and a step-summary table, and uploads
    `eval-plan.json`.
@@ -672,7 +703,7 @@ Other details:
 - **Sticky PR comment.** `report` runs even when earlier jobs failed. It combines every
   result with the plan and posts one comment marked `<!-- gpt-live-evals-report -->`. Later runs
   update that comment instead of adding new ones. The comment shows a results table (pass rate,
-  min pass^k, p50 latency, p50 first response, cost), a collapsible list of failures, and a
+  min pass^2, p50 latency, p50 first response, cost), a collapsible list of failures, and a
   collapsible **change-impact plan** that lists what ran, what was skipped, and why. Fork PRs get
   the report in the job summary instead, because their token is read-only.
 - **Nightly full run.** This catches changes that no diff can show, such as OpenAI updating a
@@ -703,7 +734,8 @@ uv run python -m evals validate
 
 # free: what would run, with cost estimates (no network, no key)
 uv run python -m evals run --tier brain --dry-run
-# → conversation_style: profile=concierge cases=4 trials=12 threshold=66% est≈$0.54
+# → backend model: gpt-5.6-luna
+#   conversation_style: profile=concierge cases=4 trials=12 threshold=66% est≈$0.54
 #   ...
 #   estimated total ≈ $1.42 (upper-bound estimate)
 
@@ -778,7 +810,7 @@ These are opinionated, and each one is implemented in this repo.
 6. **Give the judge only the transcript and a binary rubric, and pin its model.** A judge that
    sees the prompt grades intent. A judge on a 1–10 scale drifts. A judge that silently upgrades
    with the agent moves the goalposts.
-7. **Report pass^k.** Every caller is one sample. Early-stop failing cases, but never stop a
+7. **Report pass^k (here pass^2).** Every caller is one sample. Early-stop failing cases, but never stop a
    passing case early.
 8. **Test precision as well as recall.** Every suite has a "don't call a tool" case
    (`small_talk_no_tool`, `stable_fact_no_search`, `off_topic_redirect`). An agent that searches
@@ -822,23 +854,10 @@ These are opinionated, and each one is implemented in this repo.
 - **`tool.impl` for the restaurant tool covers the whole `restaurants/` package**, including
   `opentable.py`, which evals never execute. Editing the OpenTable client re-runs the brain tier.
   That's conservative and cheap, but not strictly necessary.
-- **pass^k with k = n is all-or-nothing.** Reports compute pass^n from n trials, so with 3 trials
-  pass^3 is 1.0 only if all three passed and 0 otherwise. Early stopping also means failing cases
-  report fewer trials, so "min pass^k" in the summary can mix different values of k. For a
-  graded reliability estimate, run more trials than the k you care about (for example 10 trials,
-  then read pass^3 from the JSON).
+- **pass^2 from 3 trials is coarse.** With n = 3 it can only be 0, 1/3 or 1. Run more trials
+  (`--trials 10`) when you need a finer reliability estimate for a case.
 - **Fingerprints are recorded but not yet used as a cache.** Re-running a PR whose fingerprints
   match an earlier green run still pays again.
-
-### Known gaps in the detector
-
-- **`model.py` is classified as voice-runtime code.** It also contains `build_responses_options`,
-  which the brain tier uses directly. If you change the backend options there (reasoning,
-  verbosity, `parallel_tool_calls`), only the voice tier is planned; we checked this with a
-  scratch commit. Changes to the backend *settings defaults* in `config.py` are routed
-  correctly to both tiers. Until the routing is fixed, label such PRs `evals:full`.
-- **A GitHub `paths` filter applies to label events too.** Adding `evals:full` to a PR that
-  touches no agent paths won't start `evals.yml`. Use `workflow_dispatch` instead.
 
 ### Unverified: built without API keys
 
@@ -855,8 +874,8 @@ add a key:
 - **`--voice-input text`**, the commentary path, which is marked unverified in the CLI help.
 - **Prices** in `runners/common.py` are estimates: $0.05/min for voice, $0.01 per web search,
   $15 per 1M TTS characters, and a per-model token table. Budgets are only as accurate as those
-  numbers, so override them with `EVALS_PRICING_JSON`. The dry-run estimate always prices the
-  brain tier at `gpt-5.6-luna` rates, whatever backend model is configured.
+  numbers, so override them with `EVALS_PRICING_JSON`. The brain dry-run prices the configured
+  backend model and prints it (`backend model: gpt-5.6-luna`).
 - **Judge model default.** `EVALS_JUDGE_MODEL` defaults to `gpt-5.6-luna`, the same model as the
   default backend. The judge is pinned separately, but by default it comes from the same model
   family it grades. Consider pinning a different model and calibrating it on a few hand-labeled
