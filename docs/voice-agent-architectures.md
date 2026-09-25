@@ -8,7 +8,7 @@ prompts composed from versioned modules once per session.**
 It is written for an engineer deciding what to build. Every architecture here is a legitimate
 choice for some product; the aim is to make the trade-offs explicit rather than to sell one.
 
-> Related docs: [`architecture.md`](architecture.md) (this repo's system design),
+> Related: [`architecture.md`](architecture.md) (this repo's system design),
 > [`gpt-live-primer.md`](gpt-live-primer.md) (GPT-Live in depth),
 > [`why-livekit.md`](why-livekit.md), [`modular-prompts.md`](modular-prompts.md),
 > [`tools.md`](tools.md), [`evals.md`](evals.md), [`getting-started.md`](getting-started.md).

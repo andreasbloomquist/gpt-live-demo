@@ -97,11 +97,11 @@ the final messages in `session.history` when the session ends.
 Speech recognition errors look like agent errors unless you can see them. The Call detail
 transcript puts a confidence badge on every turn that has one (in practice, caller turns):
 
-| Badge | Confidence | Why this threshold |
-|---|---|---|
-| high | ≥ 85% | Treat as what the caller said. |
-| medium | 60-84% | Probably right; worth a glance if the agent's reply seems off. |
-| **Low confidence · NN%** | < 60% | Matches the analyzer's `LOW_CONFIDENCE_THRESHOLD` (`analyzer/call_analyzer/metrics.py`), which counts these turns in the `low_confidence_turns` metric. The judge's rubric tells it that such turns may contain recognition errors. |
+| Level | Confidence | Badge | Why this threshold |
+|---|---|---|---|
+| High | ≥ 85% | `NN%` | Treat as what the caller said. |
+| Medium | 60-84% | `NN%` | Probably right; worth a glance if the agent's reply seems off. |
+| Low | < 60% | **Low confidence · NN%** | Matches the analyzer's `LOW_CONFIDENCE_THRESHOLD` (`analyzer/call_analyzer/metrics.py`), which counts these turns in the `low_confidence_turns` metric. The judge's rubric tells it that such turns may contain recognition errors. |
 
 The Metrics row repeats the call-level view: mean transcript confidence and the count of
 low-confidence turns, highlighted when non-zero. Interrupted agent turns carry an interruption

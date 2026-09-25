@@ -123,11 +123,11 @@ cancellation and agent hosting). Moving between them is a URL and credentials ch
 | First-class GPT-Live support | `livekit.plugins.openai.realtime.GPTLiveModel`, `ResponsesDelegationOptions`, `Agent.duplex_session` for provider-specific calls. |
 | Tools | `@function_tool` for restaurant availability; `livekit.plugins.openai.tools.WebSearch` as a provider tool; both forwarded to the backend Responses model. See [`tools.md`](tools.md). |
 | Handoffs / tasks | `Agent` handoffs and `AgentTask` exist for multi-stage flows. With GPT-Live, a handoff that changes instructions starts a fresh voice session (instructions are immutable), reseeded from history. |
-| Testing and evals | `AgentSession.run(user_input=...)` returns a `RunResult` with `.expect` assertions and `.judge(llm, intent=...)`; `livekit.agents.evals` has `Judge`, `JudgeGroup`, `tool_use_judge`, `task_completion_judge`, and more. See [`evals.md`](evals.md). |
+| Testing and evals | `AgentSession.run(user_input=...)` returns a `RunResult` with `.expect` assertions and `.judge(llm, intent=...)`; `livekit.agents.evals` has `Judge`, `JudgeGroup`, `tool_use_judge`, `task_completion_judge`, and more. The text-simulation helpers can't drive a `DuplexModel`, so this repo grades `session.history` from audio sessions and tests the backend brain as text. See [`evals.md`](evals.md). |
 | Metrics and tracing | `metrics_collected` events (including GPT-Live usage), OpenTelemetry traces and metrics under `livekit.agents.telemetry`. |
 | Recording | Not configured in code. `session.start(..., record=...)` uploads audio, transcripts, traces and logs to LiveKit Cloud (our `main.py` leaves it unset, so the project's server-side setting decides). This repo records its own transcript from `session.history` at shutdown and sends it to the Call Analyzer ([`call-analyzer.md`](call-analyzer.md)). |
 | Noise cancellation | `RoomOptions` audio input accepts a noise-cancellation option (the enhanced models are a LiveKit Cloud feature). |
-| Dev loop | `console` (talk to the agent in your terminal), `dev` (hot reload via `lk agent dev`), `start` (production). In 1.8 these are moving to the LiveKit CLI (`lk agent ...`); `cli.run_app` still routes them with a deprecation warning. |
+| Dev loop | `console` (talk to the agent in your terminal), `dev` (hot reload via `lk agent dev`), `start` (production). In 1.8 these are moving to the LiveKit CLI (`lk agent ...`); `cli.run_app` still routes them, and `console` and `dev` print a deprecation notice. |
 
 ---
 

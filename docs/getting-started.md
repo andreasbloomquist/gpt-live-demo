@@ -21,6 +21,7 @@ your *own* LiveKit agent.
 | LiveKit CLI (`lk`) | Optional but recommended. LiveKit Agents 1.8 steers the dev loop toward `lk agent ...`, and it's how you deploy to LiveKit Cloud. |
 | OpenAI API key | With access to **GPT-Live** (`gpt-live-1`) and the backend Responses model (`gpt-5.6-luna` by default). |
 | A microphone | For console mode and the browser. Headphones help, since speakers feeding back into the mic confuse any full-duplex model. |
+| PortAudio | Console mode only. macOS and Windows get it with the Python audio wheel; on Linux install it from your package manager (for example `sudo apt install libportaudio2`). |
 
 Cost: every connected session bills GPT-Live voice time (public pricing at time of writing is on
 the order of $0.05/min, billed per second) plus backend tokens and web-search calls. Unit tests,
@@ -83,6 +84,9 @@ uv run pytest               # agent/tests + evals/tests
 uv run ruff check .
 ```
 
+The full run takes a minute or two, most of it in the eval change detector's tests, which build
+throwaway git repositories. `uv run pytest agent/tests` alone takes a few seconds.
+
 The agent tests cover prompt composition and validation, the tool registry, the restaurant tool's
 validation and mock data, the OpenTable client against a mocked HTTP transport, call-record
 building and export, and the worker's startup checks. The analyzer has its own suite:
@@ -111,8 +115,9 @@ Things to notice:
 - the agent never claims to have booked anything;
 - the `composed prompts` log line with `prompt_fingerprint`.
 
-`uv run voice-agent ...` uses LiveKit's built-in Python CLI, which is **deprecated in 1.8** and
-prints a deprecation warning. It still works. The forward-looking equivalent is the LiveKit CLI
+`uv run voice-agent ...` uses LiveKit's built-in Python CLI, which is **deprecated in 1.8**:
+`console` and `dev` print a notice such as "console mode is deprecated and will be removed in a
+future release". They still work. The forward-looking equivalent is the LiveKit CLI
 (`lk agent console`, `lk agent dev`, `lk agent start`), which discovers the module-level `server`
 in `agent/voice_agent/main.py`. Check `lk agent --help` for how your CLI version takes the
 entrypoint path.
@@ -130,18 +135,22 @@ uv run python -m call_analyzer seed       # load and grade the six demo calls
 uv run python -m call_analyzer serve      # http://127.0.0.1:8080
 ```
 
-`seed` prints what it loaded and a score per call:
+`seed` prints what it loaded, one log line per graded call, and a summary table:
 
 ```text
 created   gpt-live-4c1e9a07-d6f56f89  (01-available-state-bird.json)
 ...
 Analyzing with provider=heuristic model=None ...
+... INFO call_analyzer.worker: analysis done call_id='gpt-live-4c1e9a07-d6f56f89' attempt=1 overall_score=95
+...
 
 call_id                          status   score  outcome
 gpt-live-4c1e9a07-d6f56f89       done        95  resolved
 gpt-live-9b27d3f1-a3c6bb5a       done        95  resolved
 gpt-live-e5a0c6b2-5b95b546       done        61  resolved
 ...
+
+Database: data/calls.db
 ```
 
 `provider=heuristic` means no API key was found, so a keyword-and-metrics heuristic did the
@@ -186,8 +195,10 @@ A third, CLI-free way to run the same worker:
 
 The worker checks its configuration before it registers. If something is wrong (no
 `OPENAI_API_KEY`, an unknown `AGENT_TIMEZONE`, `CALL_ANALYZER_URL` without a token), it exits
-straight away with one line, `voice-agent: invalid configuration, not starting: <reason>`, instead
-of taking calls it can't serve.
+straight away with `voice-agent: invalid configuration, not starting: <reason>` instead of taking
+calls it can't serve. The check is for presence, not validity: with the placeholder keys from
+`.env.example` the worker starts and then logs `failed to connect to livekit, retrying` until it
+gives up.
 
 ### 7b. Start the frontend
 
@@ -212,8 +223,8 @@ DEMO_PASSCODE=                                  # optional; leave empty on local
 ```
 
 `frontend/.env.example` already ships with `LIVEKIT_AGENT_NAME=gpt-live-agent`, matching the
-worker's default, and the local analyzer values. If you switch the worker to automatic dispatch (`LIVEKIT_AGENT_NAME=` empty),
-clear it on the frontend too. The two settings must agree.
+worker's default, and the local analyzer values. If you switch the worker to automatic dispatch
+(`LIVEKIT_AGENT_NAME=` empty), clear it on the frontend too. The two settings must agree.
 
 ```bash
 npm run dev                 # http://localhost:3000
@@ -227,8 +238,9 @@ Click **Start conversation** and allow the microphone. The transcript fills in l
 Open **Calls** (http://localhost:3000/calls). The six demo calls are there already. Hang up a
 call on the Live page and it appears at the top within a few seconds: the worker posts the
 record when the session closes, the analyzer grades it in the background, and the call shows
-*Queued*, then *Analyzing*, and the page refreshes itself until the scorecard is ready. Open a call for the scorecard,
-flags, metrics, caller sentiment and the transcript with per-turn transcription confidence.
+*Queued*, then *Analyzing*, and the page refreshes itself until the scorecard is ready. Open a
+call for the scorecard, flags, metrics, caller sentiment and the transcript with per-turn
+transcription confidence.
 **Re-analyze** grades it again (useful after you add an API key or change the rubric).
 
 In the worker log, a successful export is an INFO line `call record exported` with
@@ -332,8 +344,9 @@ CMD ["uv", "run", "--no-sync", "voice-agent", "start"]
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Browser stuck on "Waiting for agent…" | Dispatch mismatch: the frontend's `LIVEKIT_AGENT_NAME` is empty while the worker registered `gpt-live-agent`, or the reverse. | Set `LIVEKIT_AGENT_NAME=gpt-live-agent` in `frontend/.env.local` (or empty on both sides). Restart both. |
+| Live view stuck on "Connecting to Ava…", or "Ava couldn't join" | Dispatch mismatch: the frontend's `LIVEKIT_AGENT_NAME` is empty while the worker registered `gpt-live-agent`, or the reverse. | Set `LIVEKIT_AGENT_NAME=gpt-live-agent` in `frontend/.env.local` (or empty on both sides). Restart both. |
 | Same, and the names match | The worker isn't running, or it's connected to a different LiveKit project or URL. | Check the worker log for a successful registration. Compare `LIVEKIT_URL` and keys in both env files. |
+| Worker log repeats `failed to connect to livekit, retrying in …s` with `401` or `403` | `LIVEKIT_URL`, `LIVEKIT_API_KEY` or `LIVEKIT_API_SECRET` is still a placeholder, or belongs to another project. | Copy the values from LiveKit Cloud (Settings → Keys) or use the `livekit-server --dev` values. |
 | Worker exits at startup with `voice-agent: invalid configuration, not starting: …` | The preflight check found a problem before registering with LiveKit. The reason follows the colon: `OPENAI_API_KEY is not set`, `CALL_ANALYZER_URL is set but CALL_ANALYZER_TOKEN is not`, an unknown `AGENT_TIMEZONE`, a bad profile or tool. | Fix that setting in `.env` (the worker reads `.env` from the directory you start it in) and start again. |
 | `... RESTAURANT_PROVIDER=opentable needs OPENTABLE_CLIENT_ID ...` at startup | OpenTable selected without credentials. | Add the credentials or set `RESTAURANT_PROVIDER=mock`. |
 | `PromptCompositionError: ...` at startup or in tests | A module or manifest edit broke a rule (undeclared variable, wrong target, missing tool). | Run `uv run python -m voice_agent.prompts render <profile>`; the message names the module and rule. |
@@ -342,7 +355,8 @@ CMD ["uv", "run", "--no-sync", "voice-agent", "start"]
 | Agent says a past date or the wrong weekday | `AGENT_TIMEZONE` is set to the wrong (valid) zone, so "today" is off by a day near midnight. | Set `AGENT_TIMEZONE` to the callers' IANA zone. Check `today` in the `composed prompts` log line. |
 | Echo, or the agent interrupting itself | Speakers feeding into the mic. A full-duplex model hears its own voice. | Use headphones. Browsers apply echo cancellation, but laptop console mode may not. |
 | Silence after the caller speaks, then a late answer | A slow tool, or high backend reasoning effort. | Keep `GPT_LIVE_BACKEND_REASONING_EFFORT=low`. Check tool timeouts. Look for provider warnings in the worker log. |
-| `DeprecationWarning: the built-in Python CLI is deprecated` | Expected with `uv run voice-agent ...` on LiveKit Agents 1.8. | Harmless. Switch to `lk agent ...` when convenient. |
+| `console mode is deprecated` or `dev mode is deprecated` | Expected with `uv run voice-agent console` / `dev` on LiveKit Agents 1.8. | Harmless. Switch to `lk agent ...` when convenient. |
+| `OSError: PortAudio library not found` in console mode | The audio library console mode uses isn't installed. | On Linux, install PortAudio (`sudo apt install libportaudio2` or your distribution's equivalent). |
 | `RuntimeError` mentioning text simulation / `lk agent simulate audio` | A test tried to run GPT-Live in LiveKit's text mode. A duplex model is audio-only. | Test the backend brain as text instead ([`evals.md`](evals.md)). |
 | Frontend `500: Missing environment variable(s)` | `frontend/.env.local` missing or incomplete. | Copy `frontend/.env.example` and fill in the three `LIVEKIT_*` values. |
 | Worker log: `call record exported` at WARNING with `analyzer returned HTTP 401` | The agent's `CALL_ANALYZER_TOKEN` doesn't match the analyzer's. The record was saved to `.call-records/`. | Use the same token in `.env` and `analyzer/.env`, restart both, then ingest the saved files with `seed --dir ../.call-records`. |

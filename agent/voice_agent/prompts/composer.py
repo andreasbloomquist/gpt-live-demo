@@ -173,14 +173,18 @@ class PromptBundle:
         except KeyError:
             raise ValueError(f"unknown target {target!r}; expected one of {_TARGETS}") from None
 
+    def short_fingerprint_for(self, target: Target) -> str:
+        """:meth:`fingerprint_for` shortened like :attr:`version`, for logs and UI."""
+        return self.fingerprint_for(target)[:_SHORT_FINGERPRINT_CHARS]
+
     def trace_attributes(self) -> dict[str, str]:
         """Flat string attributes suitable for LiveKit participant attributes / log context."""
         return {
             "prompt.profile": self.profile,
             "prompt.fingerprint": self.fingerprint,
             "prompt.version": self.version,
-            "prompt.voice": self.fingerprint_for("voice")[:_SHORT_FINGERPRINT_CHARS],
-            "prompt.backend": self.fingerprint_for("backend")[:_SHORT_FINGERPRINT_CHARS],
+            "prompt.voice": self.short_fingerprint_for("voice"),
+            "prompt.backend": self.short_fingerprint_for("backend"),
             "prompt.tools": ",".join(self.tools),
         }
 

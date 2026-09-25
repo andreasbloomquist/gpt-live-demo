@@ -255,12 +255,12 @@ server = AgentServer()
 
 @server.rtc_session()
 async def entrypoint(ctx: agents.JobContext) -> None:
-    session = AgentSession(
+    session: AgentSession[None] = AgentSession(
         llm=GPTLiveModel(
             model="gpt-live-1",
             voice="marin",
             responses_options={
-                "instructions": "Answer precisely. Keep results short; the voice model will phrase them.",
+                "instructions": "Answer precisely and briefly; the voice model phrases the result.",
                 "reasoning": {"effort": "low"},
                 "text": {"verbosity": "low"},
             },
@@ -270,12 +270,12 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         room=ctx.room,
         agent=Agent(instructions="You are Ava, a warm, concise voice assistant."),
     )
-    # the plugin turns this into an append_commentary "speak now" ask
-    await session.generate_reply(instructions="Greet the caller briefly.")
+    # The plugin turns this into an append_commentary "speak now" ask.
+    session.generate_reply(instructions="Greet the caller briefly.")
 
 
 if __name__ == "__main__":
-    # works in 1.8.3 but warns: the rich Python CLI is being replaced by `lk agent ...`
+    # Works in 1.8.3 but prints a deprecation notice; `lk agent ...` is the successor.
     agents.cli.run_app(server)
 ```
 
@@ -309,7 +309,7 @@ async def check_restaurant_availability(
         time: 24h time, HH:MM.
         party_size: Number of guests.
     """
-    ...  # call your provider; return a compact result
+    return await my_provider.check(restaurant, date, time, party_size)  # compact JSON string
 
 
 agent = Agent(
@@ -342,9 +342,8 @@ class Concierge(Agent):
 
     async def on_enter(self) -> None:
         live: GPTLiveSession = self.duplex_session  # type: ignore[assignment]
-        live.append_thinking(
-            "Caller is signed in as a returning guest named Sam."
-        )  # know, don't say
+        # Something to know, not to say.
+        live.append_thinking("Caller is signed in as a returning guest named Sam.")
         self.session.generate_reply(instructions="Welcome Sam back.")
 ```
 
@@ -364,9 +363,9 @@ model = GPTLiveModel(delegation="client")  # no backend Responses model; the app
 
 class ClientDelegatedAgent(Agent):
     def __init__(self) -> None:
-        # tools must be empty: client delegation raises RealtimeError if any are set
+        # No tools: client delegation raises RealtimeError if any are set.
         super().__init__(instructions="You are Ava. Delegate factual questions.")
-        self._tasks: set[asyncio.Task] = set()
+        self._tasks: set[asyncio.Task[None]] = set()
 
     async def on_enter(self) -> None:
         live: GPTLiveSession = self.duplex_session  # type: ignore[assignment]
@@ -379,10 +378,10 @@ class ClientDelegatedAgent(Agent):
         live.on("delegation_created", on_delegation)
 
     async def _answer(self, live: GPTLiveSession, d: GPTLiveDelegation) -> None:
-        # the ask is the conversation so far plus the caller's in-progress turn
-        history = self.chat_ctx.items
-        answer = await my_brain.answer(history, d.pending_transcript)  # your system
-        live.append_commentary(answer, delegation_id=d.id)  # ≤500 tokens; repeat to continue
+        # The ask is the conversation so far plus the caller's in-progress turn.
+        answer = await my_brain.answer(self.chat_ctx.items, d.pending_transcript)
+        # At most 500 tokens per append; call again with the same id to continue.
+        live.append_commentary(answer, delegation_id=d.id)
 ```
 
 Pass `llm=model` to `AgentSession` as in 6.1.

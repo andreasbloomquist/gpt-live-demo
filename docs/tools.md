@@ -132,7 +132,7 @@ Why an indirection instead of `Agent(tools=[...])`?
   refuses to render it unless the profile enables the tool, and `resolve_tools` refuses unknown
   names (`UnknownToolError`). Both checks run in unit tests.
 - **Factories take `Settings`.** Provider choice, timeouts, search context size, and the clock
-  are injected, not read from globals. Tests build tools with `Settings(_env_file=None)`.
+  are injected, not read from globals. Tests build tools from settings that ignore any `.env`.
 - **Per-session instances.** Each session gets fresh tool objects. Nothing leaks between calls.
 - **`source_modules` feeds the eval change detector.** It maps a code change to the tool it
   affects, so editing `restaurants/mock.py` re-runs the restaurant suite's brain tier and not
@@ -688,11 +688,11 @@ tests pin the tool set on purpose, so a new tool is a visible, reviewed change. 
 - `test_real_prompts.py::test_concierge_prompt_content`: add it to the expected `bundle.tools`
   tuple.
 
+Both lines grow past the 100-column limit, so let the formatter wrap them, then run the suite:
+
 ```console
+$ uv run ruff format agent/tests
 $ uv run pytest -q agent/tests
-........................................................................ [ 54%]
-............................................................             [100%]
-132 passed
 ```
 
 ### Step 7: add an eval suite
@@ -744,11 +744,13 @@ static, the judge rubric can assert specific facts. Don't do that for web-search
 
 ### Step 8: open the PR
 
-The eval change detector compares base and head. For this change it should see:
+The eval change detector compares base and head. For this change it reports:
 
-- a new backend and voice prompt fingerprint for `concierge`;
-- a changed tool list, and new tool schemas and code;
-- a new suite.
+- changed backend and voice prompts for `concierge`;
+- a changed tool list, a new tool schema and new tool code;
+- a new suite;
+- changed registry code (`tools/registry.py` is core code, so on its own it would re-run
+  everything).
 
 So it selects the brain tier (and voice, where enabled) for every suite on `concierge`, not just
 the new one. That's correct: adding a tool changes what the backend can choose for *every*

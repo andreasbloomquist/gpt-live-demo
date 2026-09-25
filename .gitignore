@@ -24,8 +24,7 @@ next-env.d.ts
 # Call records written by the agent (contain transcripts)
 .call-records/
 
-# Eval artifacts
-evals/.results/
+# Eval results downloaded or written in CI (evals/.gitignore covers local results and TTS cache)
 eval-results/
 
 # OS / editors

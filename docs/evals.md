@@ -45,7 +45,7 @@ workflows and the trade-offs of the design. Everything here matches the code in 
 - **Report pass^k, not pass@k.** Each caller gets exactly one sample. An agent that is right two
   times out of three fails one caller in three.
 - **When in doubt, run it.** Every normalizer and fallback leans toward "changed". A false
-  positive costs a few cents. A false negative ships a behaviour change nobody tested.
+  positive costs a few cents. A false negative ships a behavior change nobody tested.
 - **A PR doesn't get to judge itself.** In CI the planner that decides which of a PR's evals
   run is the *base* commit's copy. A PR that edits the planner or the eval workflow runs
   everything.
@@ -110,7 +110,7 @@ flowchart TB
 
 | tier | what runs | what it catches | cost (estimates) | when |
 |---|---|---|---|---|
-| `unit` | pytest (`agent/tests`, `evals/tests`: 112 eval tests), prompt rendering, tool schema build, suite validation, dry-runs | broken code, invalid manifests, suite typos, a tool a profile doesn't enable, detector regressions | free, no keys | every PR and push to `main` (`ci.yml`) |
+| `unit` | pytest (`agent/tests`, `evals/tests`), prompt rendering, tool schema build, suite validation, dry-runs | broken code, invalid manifests, suite typos, a tool a profile doesn't enable, detector regressions | free, no keys | every PR and push to `main` (`ci.yml`) |
 | `brain` | `runners/brain.py`: the backend model through the Responses API, with real tools | wrong tool choice, bad arguments, unresolved relative dates, policy violations ("I've booked it"), verbose answers | ~$0.04 per single-turn trial including the judge; `dry-run` estimates ≈ $1.42 for all three suites × 3 trials | when the plan selects it |
 | `voice` | `runners/voice.py`: real GPT-Live sessions in `AgentSession`, driven by TTS audio | persona, spoken style, URLs read aloud, turn-taking, latency, anything a voice prompt or model/voice setting can change | ~$0.07 per single-turn trial; `dry-run` estimates ≈ $2.67 for all suites | when planned, and only if the brain tier passed or wasn't needed |
 
@@ -208,7 +208,7 @@ the production `VoiceAgent`, then drives it the way a caller would:
 3. **Play out** the agent's audio through a paced `AudioOutput` that behaves like a speaker, so
    LiveKit's playout and transcript synchronization work as they would in a room. The first
    frame of each reply is timestamped to measure **voice-to-voice latency**. The speaker
-   honours `clear_buffer()`: when LiveKit interrupts a reply, playback stops at that moment
+   honors `clear_buffer()`: when LiveKit interrupts a reply, playback stops at that moment
    and is reported as interrupted, so barge-ins show up in the history the way they would in a
    room.
 4. **Settle**: a turn counts as done once the agent has replied and 2.5 s have passed with no
@@ -281,7 +281,7 @@ The three suites in the repo test different things:
 
 - **`restaurant_availability`**: tool choice, argument extraction, and the "check, never book"
   policy.
-- **`web_search`**: when to search and when to answer directly. Its rubrics check *behaviour*
+- **`web_search`**: when to search and when to answer directly. Its rubrics check *behavior*
   (grounded, brief, no URLs read out), never facts that change daily.
 - **`conversation_style`**: word limits, no URLs or markdown, staying in scope, persona. Its
   `persona_identity` case is voice-only.
@@ -334,7 +334,7 @@ flowchart LR
      response to the caller.
 2. **The LLM judge** (`runners/judge.py`) runs **only if every deterministic check passed**. That
    saves money, and a judge should never be asked to excuse a wrong tool call. The judge:
-   - sees only the rubric and the transcript, never the agent's prompts, so it grades behaviour
+   - sees only the rubric and the transcript, never the agent's prompts, so it grades behavior
      rather than intent;
    - returns structured output `{reasoning, verdict}` through `responses.parse`, with the
      reasoning field placed before the verdict;
@@ -407,7 +407,7 @@ Two policies keep the numbers honest and the cost down:
 
 Running every paid eval on every push is expensive. Running none is how a reworded guardrail
 reaches production untested. The detector sits between the two. It answers one question for each
-(suite, tier) pair: **could this diff change the behaviour this eval measures?**
+(suite, tier) pair: **could this diff change the behavior this eval measures?**
 
 ### The pipeline
 
@@ -417,7 +417,7 @@ flowchart TB
     MB --> CF["git diff --name-only"]
     CF --> PC{"planner changed?<br/>evals/impact/ or evals.yml"}
     PC -- "yes: force a full run" --> EX
-    PC -- "no" --> FP{"any behaviour-relevant path?<br/>agent/ prompts/ evals/ uv.lock"}
+    PC -- "no" --> FP{"any behavior-relevant path?<br/>agent/ prompts/ evals/ uv.lock"}
     FP -- "no: docs, frontend, CI" --> FAST["fast path: skip all, with reason"]
     FP -- "yes" --> EX["git archive base tree and head tree<br/>into temp dirs"]
     EX --> PB["probe.py subprocess, base tree<br/>PYTHONPATH=base/agent, empty cwd, scrubbed env"]
@@ -477,7 +477,7 @@ A snapshot is a flat map of `{component_key: digest}`. The planner diffs the two
 | `code.post_call` | `recording.py` (builds and exports the call record after the session closes) | nothing: it can't change what the caller hears; unit tests cover it |
 | `code.other:<path>` | any other file under `agent/voice_agent/` (e.g. `runtime.py`), data files included | everything (unknown means conservative) |
 | `config.voice:<field>` | `Settings` defaults for `gpt_live_model` and `gpt_live_voice`, the only voice-only settings | voice tier of every suite |
-| `config.shared:<field>` | every other behavioural `Settings` default | brain + voice of every suite |
+| `config.shared:<field>` | every other behavioral `Settings` default | brain + voice of every suite |
 | `config.logic` | the rest of `config.py` (validators, helpers) | brain + voice of every suite |
 | `suite:<name>` | the suite YAML, parsed | that suite's tiers |
 | `runner:brain` / `runner:voice` / `runner:shared` | eval runner code: `runners/brain.py`, `runners/voice.py`, the rest of `runners/` plus `schema.py`, `toolschema.py`, `cli.py` | that tier (shared: both) of every suite |
@@ -496,12 +496,12 @@ Two rows are less obvious than the others:
 Settings in `config.py` are compared **field by field**. Credentials, URLs, `log_level`, `livekit_*`,
 `opentable_*` fields (evals always use the mock) and `call_*` recording fields (post-call only) are ignored. Credentials are matched as
 whole name segments (`*_api_key`, `*_secret`, `*_token`), so `gpt_live_backend_max_output_tokens`
-stays behavioural. A new field is treated as behavioural until someone adds it to an allow-list.
+stays behavioral. A new field is treated as behavioral until someone adds it to an allow-list.
 
 ### What does *not* trigger evals, and why that is safe
 
 Normalization decides what counts as "no change" (`evals/impact/normalize.py`). Each normalizer
-answers one question: *could this edit change behaviour?* When unsure, it answers yes.
+answers one question: *could this edit change behavior?* When unsure, it answers yes.
 
 | Edit | Triggers? | Why |
 |---|---|---|
@@ -658,7 +658,7 @@ change-impact plan  base=ebe4dc4b9e04  head=7ea91bbcbbd2
 
 **8. Touch the planner** (append a comment to `evals/impact/rules.py`). The planner can't vouch
 for a change to itself, so everything runs. The fingerprints equal scenario 7's, because the
-behaviour under test didn't change:
+behavior under test didn't change:
 
 ```text
 change-impact plan  base=7ea91bbcbbd2  head=c4ef85a70777
@@ -683,20 +683,20 @@ voice_fingerprints={}
 any=true
 ```
 
-### Fingerprints: an identity for "the behaviour under test"
+### Fingerprints: an identity for "the behavior under test"
 
 Every planned run carries a **fingerprint**: a hash of every head component that can affect that
 (suite, tier) pair. Compare the brain `conversation_style` fingerprint after scenario 4
 (`2e103d85e8f7fdbb`) with a forced `--force-all` plan for the docs-only commit that followed it.
-That plan printed the same value, because a docs change can't change the behaviour under test.
+That plan printed the same value, because a docs change can't change the behavior under test.
 Two commits with equal fingerprints should produce the same eval results, apart from sampling
 noise. The runner stores the fingerprint in every result file (`--fingerprints`) and in the JUnit
-properties, so a result can always be traced to the exact behaviour it measured. The fingerprint
+properties, so a result can always be traced to the exact behavior it measured. The fingerprint
 is also a natural cache key, but the current code does not use it to skip runs (§8).
 
 ### Fallbacks and overrides
 
-| Situation | Behaviour |
+| Situation | Behavior |
 |---|---|
 | Base tree can't be rendered (e.g. the composer didn't exist yet) | Every suite × tier runs, with the reason in the plan. Real example: `note: base tree could not be fingerprinted (ModuleNotFoundError: No module named 'voice_agent.prompts'); treating everything as changed` |
 | Head tree can't be rendered | Everything runs. The unit tier fails the PR anyway. |
@@ -740,7 +740,7 @@ The gates run from cheapest to most expensive:
 1. **Fast path in `plan`.** Every push to a PR and every label change starts the workflow; there
    is deliberately no `on.pull_request.paths` filter, because GitHub applies it to `labeled`
    events too and adding `evals:full` to a docs-only PR would then do nothing. Instead, when no
-   behaviour-relevant file changed (docs, frontend, `ci.yml`), the planner skips without
+   behavior-relevant file changed (docs, frontend, `ci.yml`), the planner skips without
    exporting or rendering anything, and the paid jobs never start. That takes seconds.
 2. **`plan` job.** It needs a full clone (`fetch-depth: 0`) to export the base and merge-base
    trees. Its steps:
@@ -914,7 +914,7 @@ These are opinionated, and each one is implemented in this repo.
 3. **Make tools deterministic under eval.** The mock provider seeds its data from
    `sha256(salt|restaurant|date)`. The same question gets the same availability, so a failure is
    about the agent and not the fixture, and rubrics can assert specific facts. For live tools
-   like web search, assert behaviour (grounded, brief, no URLs), never facts.
+   like web search, assert behavior (grounded, brief, no URLs), never facts.
 4. **Inject "today" and assert relative dates relatively.** `$days_from_today: 1` tests
    "tomorrow" on any day, in the agent's timezone.
 5. **Put deterministic checks before the judge, and never ask a judge to excuse a wrong tool
@@ -940,7 +940,7 @@ These are opinionated, and each one is implemented in this repo.
     re-runs exactly the right tier.
 13. **When unsure, run it.** Unknown modules, new settings, new component kinds and unrenderable
     bases all mean "run everything". A false positive costs a few cents. A false negative ships an
-    untested behaviour change.
+    untested behavior change.
 14. **Cheap gates before expensive ones, and a hard budget on each.** Order the stages as unit,
     then brain, then voice. Reserve the budget *before* each trial, and price unknown models as
     the most expensive one.
@@ -961,7 +961,7 @@ These are opinionated, and each one is implemented in this repo.
 - **TTS callers are too clean.** They have no accents, background noise or disfluencies. For
   robustness evals, substitute recorded or noise-augmented audio in `TTSCache.synthesize`.
 - **Tool-code changes skip the voice tier by design.** That's right for refactors, but a tool
-  change that alters *latency* (a slower provider) could affect filler behaviour, which only the
+  change that alters *latency* (a slower provider) could affect filler behavior, which only the
   voice tier would catch. Use `evals:full` for those.
 - **One failing brain suite blocks every voice leg**, not just the voice leg for that suite. This
   is the cheap-before-expensive gate working as designed, but it is blunt.
@@ -1072,7 +1072,7 @@ automatically either way. Declare the tool in the `tools` list of every suite th
 
 New `Settings` fields are treated as `config.shared` (both tiers, every suite) by default. If a
 field only affects the voice model, add it to `CONFIG_VOICE_ONLY` in `evals/impact/rules.py`. If
-it can never affect behaviour (credentials, endpoints), make sure its name matches
+it can never affect behavior (credentials, endpoints), make sure its name matches
 `CONFIG_IGNORED`. A unit test should pin the routing either way.
 
 ### Add a tier

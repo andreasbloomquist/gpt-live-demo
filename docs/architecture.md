@@ -177,7 +177,7 @@ Each component gets the same five questions: **role**, **why we chose it**, **be
 
 - **Role.** A LiveKit Agents `AgentServer` whose `@server.rtc_session()` entrypoint runs once per
   room. It registers under the agent name from `LIVEKIT_AGENT_NAME` (`main.py` sets
-  `gpt-live-agent` as the default). Per session it does five things:
+  `gpt-live-agent` as the default). Per session it does six things:
   1. composes the prompt bundle, with runtime variables for today's date and timezone;
   2. resolves the profile's tools through the registry;
   3. builds the `GPTLiveModel`;
@@ -188,7 +188,7 @@ Each component gets the same five questions: **role**, **why we chose it**, **be
   Before any of that, at **worker startup**, `ValidatingAgentServer.run` calls `preflight()`:
   it loads `Settings`, composes the configured profile, resolves its tools, requires
   `OPENAI_API_KEY`, and (if recording is on) validates the analyzer settings. A failure exits
-  with one line, `voice-agent: invalid configuration, not starting: <reason>`, *before* the
+  with `voice-agent: invalid configuration, not starting: <reason>`, *before* the
   worker registers with LiveKit, so a misconfigured worker never accepts a job and leaves a
   caller in a silent room. `run` is used rather than LiveKit's `setup_fnc` (prewarm) because
   prewarm runs in each job subprocess after registration.
@@ -687,7 +687,7 @@ when a session actually needs them.
 | `GPT_LIVE_BACKEND_MAX_OUTPUT_TOKENS` | unset | `model.py` | Integer ≥ 16. Unset means the service default. |
 | `AGENT_PROFILE` | `concierge` | `main.py` | Profile in `prompts/manifest.yaml`. |
 | `AGENT_TIMEZONE` | `America/Los_Angeles` | `runtime.py`, restaurant tool | IANA name. An unknown name is a settings error, so the worker refuses to start. |
-| `PROMPTS_DIR` | repo `prompts/` | `composer.py` | Read at import time. Set it when the code is installed somewhere other than a repo checkout (e.g. a container image). |
+| `PROMPTS_DIR` | repo `prompts/` | `composer.py` | Read from the process environment at import time. Set it when the code is installed somewhere other than a repo checkout (e.g. a non-editable wheel). |
 | `WEB_SEARCH_CONTEXT_SIZE` | `low` | `web_search.py` | `low`, `medium`, `high`. More context costs more and is slower. |
 | `RESTAURANT_PROVIDER` | `mock` | `restaurants/__init__.py` | `mock` or `opentable`. |
 | `OPENTABLE_CLIENT_ID` / `OPENTABLE_CLIENT_SECRET` | none | OpenTable provider | Required when the provider is `opentable`. Partner credentials. |
@@ -730,7 +730,7 @@ The Call Analyzer reads `analyzer/.env` (from [`analyzer/.env.example`](../analy
 | Provider timeout, 429, 5xx, bad OAuth | `ReservationError` → `ToolError(user_message)` | Worker log (`reservation provider error` with `detail`); the caller hears "try again or call the restaurant". |
 | Unexpected exception in a provider | Logged with traceback; generic `ToolError` | Worker log. The caller never hears internals. |
 | GPT-Live connection drop | The plugin reconnects and reseeds from history (capped) | `session_reconnected`; see [primer §5](gpt-live-primer.md#reconnects-and-session-recycling). |
-| Frontend and agent disagree on dispatch | The room has no agent | Browser stuck on "Waiting for agent…" See [`getting-started.md`](getting-started.md#troubleshooting). |
+| Frontend and agent disagree on dispatch | The room has no agent | The Live view stays on "Connecting to Ava…". See [`getting-started.md`](getting-started.md#troubleshooting). |
 | Call Analyzer down, slow, or rejecting the record | One retry within a 5 s budget, then the record is written to `CALL_RECORDS_DIR` | Worker log `call record exported` at WARNING with the file path and reason. Ingest later with `call_analyzer seed --dir`. The caller notices nothing. |
 | Agent and analyzer tokens differ | Analyzer returns 401, not retried | Same WARNING with `analyzer returned HTTP 401`; the record goes to disk. |
 | Frontend can't reach or authenticate to the analyzer | `AnalyzerError` in `lib/analyzer.ts` | The Calls page shows "Can't load calls right now" with a specific hint (not configured, unreachable, token mismatch). Details in the Next.js server log. |

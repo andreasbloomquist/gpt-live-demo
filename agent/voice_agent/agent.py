@@ -36,7 +36,8 @@ class VoiceAgent(Agent):
     async def on_enter(self) -> None:
         """Speak first, so the caller isn't met with silence."""
         logger.info(
-            "agent entered", extra={"profile": self.bundle.profile, "prompt": self.bundle.version}
+            "agent entered",
+            extra={"profile": self.bundle.profile, "prompt_version": self.bundle.version},
         )
         # GPT-Live decides turn-taking itself; generate_reply with an instruction is delivered
         # as one-off commentary asking it to speak first. session.say() raises on a duplex

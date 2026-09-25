@@ -84,7 +84,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"# profile={bundle.profile} fingerprint={bundle.version} tools={','.join(bundle.tools)}")
     for target in sections:
         text = bundle.voice_instructions if target == "voice" else bundle.backend_instructions
-        print(f"\n===== {target} ({bundle.fingerprint_for(target)[:12]}) =====\n")
+        print(f"\n===== {target} ({bundle.short_fingerprint_for(target)}) =====\n")
         print(text)
     if bundle.greeting and args.target in (None, "voice"):
         print(f"\n===== greeting =====\n\n{bundle.greeting}")

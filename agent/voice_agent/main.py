@@ -153,7 +153,7 @@ async def entrypoint(ctx: JobContext) -> None:
     # Every log line from this job carries the prompt version.
     ctx.log_context_fields = {
         "profile": bundle.profile,
-        "prompt_fingerprint": bundle.version,
+        "prompt_version": bundle.version,
     }
     _log_composed_prompts(bundle)
 
@@ -182,7 +182,7 @@ async def entrypoint(ctx: JobContext) -> None:
         # The job closes the AgentSession before running shutdown callbacks, so the history
         # (including a final interrupted turn) is complete by the time this runs.
         summary = [u.model_dump(exclude_defaults=True) for u in session.usage.model_usage]
-        logger.info("session usage", extra={"usage": summary, "prompt_fingerprint": bundle.version})
+        logger.info("session usage", extra={"usage": summary, "prompt_version": bundle.version})
         if exporter is not None:
             await _record_call(
                 ctx,
@@ -215,8 +215,8 @@ def _log_composed_prompts(bundle: PromptBundle) -> None:
         extra={
             "profile": bundle.profile,
             "prompt_fingerprint": bundle.fingerprint,
-            "voice_fingerprint": bundle.fingerprint_for("voice")[:12],
-            "backend_fingerprint": bundle.fingerprint_for("backend")[:12],
+            "voice_fingerprint": bundle.short_fingerprint_for("voice"),
+            "backend_fingerprint": bundle.short_fingerprint_for("backend"),
             "voice_modules": list(bundle.modules["voice"]),
             "backend_modules": list(bundle.modules["backend"]),
             "tools": list(bundle.tools),

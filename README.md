@@ -1,11 +1,16 @@
 # GPT-Live × LiveKit: a reference voice agent
 
 An end-to-end, production-shaped voice agent built on **OpenAI GPT-Live** (`gpt-live-1`) and
-**LiveKit Agents**. It has a **modular prompt system**, two real tools (**web search** and
-**restaurant availability**), a **change-aware eval system** that runs paid evals only when a
-change could actually alter the agent's behavior, and **call recording** into a separate **Call
-Analyzer** service that grades every finished call against a versioned rubric. A Next.js app
-lets you talk to the agent, browse past calls, and read each call's scorecard and transcript.
+**LiveKit Agents**, with:
+
+- a **modular prompt system** that composes the voice and backend prompts from versioned modules;
+- two real tools, **web search** and **restaurant availability**;
+- a **change-aware eval system** that runs paid evals only when a change could alter the agent's
+  behavior;
+- **call recording** into a separate **Call Analyzer** service that grades every finished call
+  against a versioned rubric;
+- a **Next.js app** to talk to the agent, browse past calls, and read each call's scorecard and
+  transcript.
 
 It is meant to be read as much as run. Every component has a written reason for existing, its
 benefits and drawbacks, and the alternatives we turned down, so you can lift the parts you want
@@ -15,6 +20,9 @@ into your own voice agent.
 > planning, dry runs, and the Call Analyzer with six graded demo calls). A live call needs your
 > own LiveKit project and an OpenAI key with GPT-Live access. All keys in this repo are
 > placeholders.
+
+[Quickstart](#quickstart) · [Architecture](#the-architecture-in-one-picture) ·
+[Trade-offs](#what-we-chose-and-what-it-costs) · [Documentation](#documentation)
 
 ---
 
@@ -141,8 +149,8 @@ Longer answers, with diagrams:
 key with GPT-Live access.
 
 ```bash
-git clone <this repo> && cd gpt-live-demo
-uv sync                                   # Python deps (agent + evals + dev tools)
+git clone <this-repo-url> gpt-live-demo && cd gpt-live-demo
+uv sync                                   # Python deps (agent + dev tools)
 cp .env.example .env                      # fill in LIVEKIT_* and OPENAI_API_KEY
 
 # Free, offline, no keys:
@@ -155,7 +163,7 @@ cd analyzer && uv sync && cp .env.example .env
 uv run python -m call_analyzer seed       # load + grade the six calls in analyzer/demo/calls/
 uv run python -m call_analyzer serve      # http://127.0.0.1:8080
 
-# Talk to it (from the repo root):
+# Talk to it (from the repo root; needs real keys in .env):
 uv run voice-agent console                # in your terminal, with your mic
 # ...or run it as a worker and use the web client:
 uv run voice-agent dev                    # (or: lk agent dev)
@@ -212,7 +220,7 @@ The composer is strict:
 | `check_restaurant_availability` | LiveKit `@function_tool` | In the agent worker | Validates arguments, **never books**, returns compact JSON the voice can speak. Backed by a deterministic mock or an OpenTable partner-API client. |
 
 Adding your own tool takes one function, one registry entry, a voice module and a backend module,
-one line in the manifest, a unit test, and an eval suite. The step-by-step tutorial is in
+the manifest entries that enable them, a unit test, and an eval suite. The step-by-step tutorial is in
 [`docs/tools.md`](docs/tools.md#10-tutorial-add-your-own-custom-tool).
 
 ## Evals that only run when they matter
@@ -285,7 +293,7 @@ analyzer/                 Call Analyzer: separate uv project, Dockerfile, own te
   demo/calls/               six realistic CallRecords for a zero-key demo
 frontend/                 Next.js app (App Router)
   app/                      / (Live), /calls, /calls/[id], /unlock, /api/token, Server Actions
-  components/               live/ (room, orb, transcript), calls/ (list), call/ (scorecard, transcript)
+  components/               live/ (room, orb, transcript), calls/ (list), call-detail/ (scorecard, transcript)
   lib/                      server-only analyzer client, passcode gate, types mirroring the analyzer
 docs/                     architecture, trade-offs, primer, prompts, tools, evals, analyzer, frontend
 .github/workflows/        ci.yml (lint, tests, prompt render, analyzer, frontend) and evals.yml

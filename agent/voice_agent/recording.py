@@ -146,8 +146,8 @@ def build_call_record(
             "profile": bundle.profile,
             "fingerprint": bundle.fingerprint,
             "version": bundle.version,
-            "voice": bundle.fingerprint_for("voice")[:12],
-            "backend": bundle.fingerprint_for("backend")[:12],
+            "voice": bundle.short_fingerprint_for("voice"),
+            "backend": bundle.short_fingerprint_for("backend"),
         },
         "models": {
             "voice_model": settings.gpt_live_model,

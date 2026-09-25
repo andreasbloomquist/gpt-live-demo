@@ -419,7 +419,7 @@ $ uv run python -m voice_agent.prompts render concierge --json
 | `--target voice\|backend` | Only one brain (with `--json`, drops the other's instructions). |
 | `--json` | The full bundle as JSON. Pipe it to `jq` or diff two revisions. |
 | `--var NAME=VALUE` | Extra or runtime variables (repeatable). |
-| `--prompts-dir PATH` | Another prompts tree (default: repo `prompts/`, or `$PROMPTS_DIR`). |
+| `--prompts-dir PATH` | Another prompts tree (default: repo `prompts/`, or `$PROMPTS_DIR`). Goes before the subcommand: `python -m voice_agent.prompts --prompts-dir PATH render concierge`. |
 
 Exit code 1 and `error: ...` on stderr for any `PromptCompositionError`, so it works as a CI
 gate.
