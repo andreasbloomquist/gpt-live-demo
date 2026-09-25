@@ -117,7 +117,9 @@ Each component gets the same five questions: **role**, **why we chose it**, **be
 ### 2.2 Token route (`frontend/app/api/token/route.ts`)
 
 - **Role.** `POST /api/token` mints a 15-minute LiveKit JWT for a fresh random room
-  (`gpt-live-<8 hex>`) and identity (`user-<8 hex>`). If `LIVEKIT_AGENT_NAME` is set, the token
+  (`gpt-live-<8 hex>`) and identity (`user-<8 hex>`). The grant is least-privilege: join that
+  room, publish the microphone only (no camera, screen or data messages), and subscribe. If
+  `LIVEKIT_AGENT_NAME` is set, the token
   carries a `RoomConfiguration` with a `RoomAgentDispatch` for that agent name. The agent joins
   as soon as the room is created.
 - **Why.** Explicit dispatch means only rooms that ask for `gpt-live-agent` get this worker. That

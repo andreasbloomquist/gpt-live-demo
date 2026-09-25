@@ -74,7 +74,9 @@ numeric strings. The operators are `$regex`, `$in`, `$contains`, `$exists` and
 1. **Deterministic checks first**: tool calls and their arguments, forbidden tools, word
    limits and regex guardrails. They cost nothing and never flake.
 2. **LLM judge second** (`runners/judge.py`): a pinned model (`EVALS_JUDGE_MODEL`) sees only
-   the transcript and the rubric, and returns structured `{reasoning, verdict}` output. Both
+   the transcript and the rubric, and returns structured `{reasoning, verdict}` output. The
+   transcript is fenced as untrusted data, and the judge is told it is data to grade, never
+   instructions. `reasoning` is sent only to reasoning models (`gpt-5*`, `o<digit>*`). Both
    tiers use the same judge, so their pass rates are comparable.
 3. **Repeated trials**: voice models are nondeterministic, so each case runs `trials` times
    and passes if `pass_rate ≥ pass_threshold`. Reports also show `pass^2`, the unbiased
@@ -83,10 +85,12 @@ numeric strings. The operators are `$regex`, `$in`, `$contains`, `$exists` and
    trials (with k = n it could only be 0 or 1). It is empty when fewer than 2 trials ran.
    Once a case can no longer reach its threshold, its remaining trials are skipped (it has
    failed either way). Passing cases always run every trial.
-4. **Hard budget**: `--max-cost-usd` reserves a pessimistic per-trial estimate before each
-   trial, so concurrent trials together cannot exceed the cap. Spend comes from reported
-   token usage and billed session seconds. Prices in `runners/common.py` are estimates; you
-   can override them with `EVALS_PRICING_JSON`.
+4. **Hard budget**: `--max-cost-usd` reserves a pessimistic per-trial estimate when a trial
+   starts running (once a concurrency slot is free), so concurrent trials together cannot
+   exceed the cap. Spend comes from reported token usage and billed session seconds, except
+   that a crashed trial (`crashed: true`) is charged its reservation and a failed judge call an
+   estimate. Prices in `runners/common.py` are estimates; you can override them with
+   `EVALS_PRICING_JSON`.
 
 ## The two paid tiers
 
@@ -94,9 +98,12 @@ numeric strings. The operators are `$regex`, `$in`, `$contains`, `$exists` and
 sends it: the composed backend instructions, `voice_agent.model.build_responses_options`, and
 tool schemas converted the way `gpt_live_model._build_delegation_tools` converts them.
 `web_search` is `{"type": "web_search", ...}`. Function tools execute for real through
-LiveKit's `prepare_function_arguments` against the deterministic `MockReservationProvider`
-(`RESTAURANT_PROVIDER` is forced to `mock`). The model therefore sees the same outputs and
-`ToolError` messages it would see in production.
+LiveKit's own `llm.utils.execute_function_call` (which uses `prepare_function_arguments`)
+against the deterministic `MockReservationProvider` (`RESTAURANT_PROVIDER` is forced to `mock`),
+so tool results, `ToolError` messages, and the unknown-tool and internal-error texts match
+production. The tool loop is capped at 6 steps per turn; hitting the cap ends the conversation.
+Responses that come back `incomplete` (e.g. `max_output_tokens`) are recorded in the trial's
+`meta.incomplete_responses`.
 
 **Voice** (`runners/voice.py`) runs a real `AgentSession(llm=build_gpt_live_model(...))` with
 the production `VoiceAgent`. It drives the session with **audio**, not text:
@@ -108,10 +115,13 @@ the production `VoiceAgent`. It drives the session with **audio**, not text:
   turn-taking. It is available as `--voice-input text` for smoke tests but has not been
   verified against the live service.
 - Instead, each user turn is synthesized with OpenAI TTS as 24 kHz mono PCM. The audio is
-  cached in `.cache/tts/`, so input audio is identical across runs and paid for once. It is
-  streamed in real time through a custom `voice.io.AudioInput`, with silence between turns.
-  A paced `AudioOutput` acts as the speaker and measures **voice-to-voice latency**. The
-  agent's turn counts as done once the session has been quiet for a short time. Grading reads
+  cached in `.cache/tts/` under `sha256(model|voice|instructions|text)` (per-clip lock, atomic
+  write), so input audio is identical across runs and paid for once. It is streamed in real
+  time through a custom `voice.io.AudioInput`, with silence between turns. A paced
+  `AudioOutput` acts as the speaker and measures **voice-to-voice latency**; it honours
+  `clear_buffer()`, so barge-ins are recorded as interrupted replies. The agent's turn counts
+  as done once the session has been quiet for a short time. If the session closes on its own
+  (a GPT-Live error), the trial ends at once as a crashed trial. Grading reads
   `session.history`, the same `ChatContext` that LiveKit's `evals.JudgeGroup` consumes.
 - Trade-offs:
   - Cases run in real time (about 20–60 s each).
@@ -119,7 +129,8 @@ the production `VoiceAgent`. It drives the session with **audio**, not text:
     noise-augmented audio at `TTSCache.synthesize`.
   - Provider-side tools such as `web_search` run inside OpenAI and are not observable as
     function-call events. Expectations about them are marked *skipped* in this tier rather
-    than passed; the brain tier asserts them.
+    than passed, and so is `no_tool_calls` when nothing visible was called but such a tool is
+    enabled; the brain tier asserts them.
   - The runner reports `asr_similarity` between the script and what GPT-Live heard. When it
     is low, a failure says more about the input audio than about the agent.
 
@@ -134,34 +145,42 @@ probed in its own subprocess (`probe.py`) with that tree's `voice_agent` on `PYT
 | `prompt.voice:<profile>` | rendered voice instructions + greeting | voice tier of that profile's suites |
 | `prompt.backend:<profile>` | rendered backend instructions | brain + voice |
 | `profile.tools:<profile>` / `tool.schema:<tool>` | tool JSON as the model sees it | brain + voice of suites whose profile exposes the tool |
-| `tool.impl:<tool>` | normalized AST of `ToolSpec.source_modules` plus the agent modules they import | **brain** of suites that declare the tool |
+| `profile.error:<profile>` | a profile that fails to render on one side | brain + voice of that profile's suites |
+| `tool.impl:<tool>` | normalized AST of `ToolSpec.source_modules` plus the agent modules they import (transitively; core files and `config.py` excluded) | **brain** of suites that declare the tool |
 | `code.core` | composer, registry | everything |
 | `code.other:<path>` | any other file under `agent/voice_agent/`, data files included | everything |
 | `code.backend_runtime` | `model.py` (it holds `build_responses_options`, the brain tier's backend config) | brain + voice |
 | `code.voice_runtime` | `agent.py`, `main.py` | voice |
-| `config.voice:*` / `config.shared:*` | literal defaults in `config.py` (credentials, URLs and logging ignored) | voice / both |
+| `code.post_call` | `recording.py` | nothing (post-call only) |
+| `config.voice:*` / `config.shared:*` | literal defaults in `config.py` (credentials, URLs and logging ignored; credentials match whole name segments, so `max_output_tokens` counts) | voice / both |
+| `config.logic` | the rest of `config.py` (validators, helpers) | both |
 | `suite:<name>` | normalized suite YAML | that suite |
 | `runner:brain` / `runner:voice` / `runner:shared` | eval runner code | that tier / both |
-| `deps:<pkg>` | `uv.lock` versions of `livekit*` and `openai` | everything |
+| `deps:<pkg>` | `uv.lock` versions (and git/path sources) of `livekit*` and `openai` | everything |
 
 Normalization decides what counts as "no change":
 - **Prompts**: the *rendered* prompt is compared, so HTML comments the composer strips are
   ignored, and so are whitespace, blank lines and paragraph re-wrapping. Words, punctuation,
-  list structure and nesting, and fenced code blocks are not.
+  list structure and nesting, and fenced code blocks are not. A comment that survives
+  rendering (opened in one module, closed in another) reaches the model, so it counts.
 - **Python**: comments and formatting are ignored, and so are *all* docstrings. That is safe
   because docstrings the model does see (tool descriptions, parameter docs) appear in the
   rendered tool schema, which is fingerprinted separately and routed to both tiers.
 - **YAML**: parsed data is compared, not text.
 
 Degradation and overrides:
+- In CI the planner is the **base commit's** copy of `evals/` (exported with `git archive`
+  and run with `--repo "$GITHUB_WORKSPACE"`), so a PR can't rewrite the rules that judge it.
+  A diff that touches `evals/impact/**` or `.github/workflows/evals.yml`, or a base without a
+  planner, runs everything: `planner code changed: running everything`.
 - If the base tree cannot be rendered (for example, the composer did not exist yet), every
   suite is treated as changed.
-- `--force-all`, `EVALS_FORCE_ALL=1`, the label `evals:full`, and the nightly schedule run
-  everything.
-- The label `evals:skip` runs nothing.
+- `--force-all`, `EVALS_FORCE_ALL=1` (with an optional `EVALS_FORCE_REASON`), the label
+  `evals:full`, `workflow_dispatch` (by default) and the nightly schedule run everything.
+- The label `evals:skip` runs nothing, even when a full run was forced.
 - `--suites` and `--tiers` filter the plan; an unknown name is an error (exit 2), never an
   empty plan.
-- Diffs that touch only docs, frontend or CI files take a fast path that skips rendering.
+- Diffs that touch only docs, frontend or other CI files take a fast path that skips rendering.
   This fast path, not a workflow `paths:` filter, is the first gate in CI, because GitHub
   applies `paths:` to `labeled` events too. That would stop `evals:full` from working on a
   docs-only PR.
@@ -173,13 +192,18 @@ per-tier fingerprints to `$GITHUB_OUTPUT`, and a Markdown table to `$GITHUB_STEP
 
 - `.github/workflows/ci.yml`: ruff, pytest, rendering of every profile, suite validation,
   dry-runs, and the frontend lint/typecheck/build. None of it needs secrets.
-- `.github/workflows/evals.yml`: `plan` → `brain` matrix → `voice` matrix (only if brain
-  passed) → `report`, which posts a sticky PR comment listing what ran, what was skipped, and
-  why.
+- `.github/workflows/evals.yml`: `plan` (base commit's planner) → `brain` matrix → `voice`
+  matrix (only if brain passed) → `report` (builds it read-only) → `comment` (posts the sticky
+  PR comment listing what ran, what was skipped, and why; `pull-requests: write`, no checkout).
+  Actions are pinned to commit SHAs and every checkout uses `persist-credentials: false`.
 
-Setup: create an `evals` environment that holds the `OPENAI_API_KEY` secret. You can
-optionally add required reviewers, and set the `EVALS_MAX_COST_USD` variable (per-job budget,
-default 3). Fork PRs and repos without the key skip the paid jobs and say so in the report.
+Setup: create an `evals` environment that holds the `OPENAI_API_KEY` secret. Add required
+reviewers to it in the repository settings if paid runs should wait for approval (the workflow
+can't set that), and optionally set the `EVALS_MAX_COST_USD` variable (per-job budget, default
+3; a `workflow_dispatch` run defaults to 5). Fork PRs and repos without the key skip the paid
+jobs and say so in the report. What this does and doesn't protect against is in
+[`docs/evals.md` §8](../docs/evals.md#ci-trust-boundaries).
 
 Environment knobs: `EVALS_JUDGE_MODEL`, `EVALS_TTS_MODEL`, `EVALS_TTS_VOICE`,
-`EVALS_TTS_CACHE`, `EVALS_PRICING_JSON`, `EVALS_RESULTS_DIR`, `EVALS_LOG_LEVEL`.
+`EVALS_TTS_CACHE`, `EVALS_PRICING_JSON`, `EVALS_RESULTS_DIR`, `EVALS_LOG_LEVEL`; for the
+planner, `EVALS_LABELS`, `EVALS_FORCE_ALL` and `EVALS_FORCE_REASON`.

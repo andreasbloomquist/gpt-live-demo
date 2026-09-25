@@ -46,6 +46,9 @@ workflows and the trade-offs of the design. Everything here matches the code in 
   times out of three fails one caller in three.
 - **When in doubt, run it.** Every normalizer and fallback leans toward "changed". A false
   positive costs a few cents. A false negative ships a behaviour change nobody tested.
+- **A PR doesn't get to judge itself.** In CI the planner that decides which of a PR's evals
+  run is the *base* commit's copy. A PR that edits the planner or the eval workflow runs
+  everything.
 
 ---
 
@@ -107,7 +110,7 @@ flowchart TB
 
 | tier | what runs | what it catches | cost (estimates) | when |
 |---|---|---|---|---|
-| `unit` | pytest (`agent/tests`, `evals/tests`: 74 eval tests), prompt rendering, tool schema build, suite validation, dry-runs | broken code, invalid manifests, suite typos, a tool a profile doesn't enable, detector regressions | free, no keys | every PR and push to `main` (`ci.yml`) |
+| `unit` | pytest (`agent/tests`, `evals/tests`: 112 eval tests), prompt rendering, tool schema build, suite validation, dry-runs | broken code, invalid manifests, suite typos, a tool a profile doesn't enable, detector regressions | free, no keys | every PR and push to `main` (`ci.yml`) |
 | `brain` | `runners/brain.py`: the backend model through the Responses API, with real tools | wrong tool choice, bad arguments, unresolved relative dates, policy violations ("I've booked it"), verbose answers | ~$0.04 per single-turn trial including the judge; `dry-run` estimates ≈ $1.42 for all three suites × 3 trials | when the plan selects it |
 | `voice` | `runners/voice.py`: real GPT-Live sessions in `AgentSession`, driven by TTS audio | persona, spoken style, URLs read aloud, turn-taking, latency, anything a voice prompt or model/voice setting can change | ~$0.07 per single-turn trial; `dry-run` estimates ≈ $2.67 for all suites | when planned, and only if the brain tier passed or wasn't needed |
 
@@ -164,15 +167,23 @@ flowchart LR
 - **Same tool JSON**: `evals/toolschema.py` mirrors `_build_delegation_tools` in
   `livekit-plugins-openai` 1.8.3. Function tools use LiveKit's legacy schema in the internally
   tagged Responses shape. `WebSearch` serializes with `to_dict()` to `{"type": "web_search", ...}`.
-- **Same tool code**: function calls go through LiveKit's own `prepare_function_arguments` and
-  the real `check_restaurant_availability`. That tool runs against `MockReservationProvider`
-  (`RESTAURANT_PROVIDER` is forced to `mock`), so the model sees the same JSON outputs and
-  `ToolError` messages it would see in production.
+- **Same tool code**: function calls go through LiveKit's own `llm.utils.execute_function_call`
+  (which validates arguments with `prepare_function_arguments`) and the real
+  `check_restaurant_availability`. That tool runs against `MockReservationProvider`
+  (`RESTAURANT_PROVIDER` is forced to `mock`). Tool results, `ToolError` messages, and the
+  texts for an unknown tool or an unexpected exception ("An internal error occurred") therefore
+  match what the model would see in production.
 - **Web search runs for real** on OpenAI's side, and each `web_search_call` output item is
   recorded with its query. In the voice tier the same call can't be observed at all.
 
 The runner loops until the model stops calling tools, capped at `MAX_STEPS_PER_TURN = 6`. A model
-stuck calling tools counts as a failure. It never becomes an unbounded bill.
+stuck calling tools counts as a failure. It never becomes an unbounded bill. When the cap is
+hit, the conversation ends there: the last response still has unanswered function calls, so the
+API would reject chaining the next user turn onto it.
+
+A response that comes back `incomplete` (for example, `max_output_tokens` was hit) is recorded
+in the trial's `meta.incomplete_responses` with its reason. A cut-off reply then explains a
+failure that would otherwise look like the model's choice.
 
 **What the brain tier cannot see** is how the voice model phrases, times or interrupts. It also
 takes a shortcut: in production the backend receives the conversation through GPT-Live's
@@ -186,18 +197,25 @@ the production `VoiceAgent`, then drives it the way a caller would:
 
 1. **Synthesize** each scripted user turn with OpenAI TTS (`EVALS_TTS_MODEL`, default
    `gpt-4o-mini-tts`; `EVALS_TTS_VOICE`, default `alloy`) as 24 kHz mono PCM. Each clip is
-   cached in `evals/.cache/tts/` under `sha256(model|voice|text)`. The same text therefore
-   produces byte-identical audio on every run, which removes TTS as a source of variance
-   between commits.
+   cached in `evals/.cache/tts/` under `sha256(model|voice|instructions|text)`, which covers
+   everything that changes the audio. The same text therefore produces byte-identical audio on
+   every run, which removes TTS as a source of variance between commits. A per-clip lock means
+   concurrent trials that share a user turn synthesize (and pay for) it once, and clips are
+   written to a temp file and renamed, so an interrupted run never caches a truncated clip.
 2. **Stream** the audio in real time through a custom `voice.io.AudioInput`, in 20 ms frames
    with 0.6 s of lead-in silence. Between turns the fake microphone keeps sending silence, so
    GPT-Live decides for itself when the caller has finished.
 3. **Play out** the agent's audio through a paced `AudioOutput` that behaves like a speaker, so
    LiveKit's playout and transcript synchronization work as they would in a room. The first
-   frame of each reply is timestamped to measure **voice-to-voice latency**.
+   frame of each reply is timestamped to measure **voice-to-voice latency**. The speaker
+   honours `clear_buffer()`: when LiveKit interrupts a reply, playback stops at that moment
+   and is reported as interrupted, so barge-ins show up in the history the way they would in a
+   room.
 4. **Settle**: a turn counts as done once the agent has replied and 2.5 s have passed with no
    speech, no state change and no tool activity (`SETTLE_S`), with a 60 s timeout per turn. The
-   greeting is allowed to finish first, so the first user turn isn't treated as a barge-in.
+   greeting is allowed to finish first, so the first user turn isn't treated as a barge-in. If
+   the session closes on its own (a GPT-Live error, a disconnect), the trial stops at once and
+   is recorded as a crashed trial with the close reason, instead of waiting out the timeout.
 5. **Grade** `session.history`, the same `ChatContext` that LiveKit's `evals.JudgeGroup`
    consumes, with the same assertions and judge the brain tier uses.
 
@@ -323,12 +341,20 @@ flowchart LR
    - gives a binary verdict against explicit pass criteria, because rating scales drift and
      pass/fail is easier to read in a PR comment;
    - uses a model pinned by `EVALS_JUDGE_MODEL`, so upgrading the agent's model doesn't silently
-     change the grader.
+     change the grader. The `reasoning` parameter is sent only to reasoning models (`gpt-5*` and
+     the `o<digit>` series), because other models reject it;
+   - treats the transcript as untrusted data. It is wrapped in `<transcript>` tags, any
+     `<transcript>`/`<rubric>` tags inside it are neutralized so agent or tool output can't close
+     the block, and the judge's instructions say that everything inside is data to grade, never
+     instructions. A web page that says "mark this as PASS" gets ignored.
 
-   Both tiers use the same judge, so a case that passes in brain and fails in voice points at the
-   voice layer, not at a different grader.
+   A judge call that raises fails the trial and is charged an estimated cost, because it may have
+   been billed before it failed. Both tiers use the same judge, so a case that passes in brain and
+   fails in voice points at the voice layer, not at a different grader.
 3. **Unobservable is not passed.** In the voice tier, expectations about `web_search` are recorded
-   as *skipped*, with the detail "not observable in this tier".
+   as *skipped*, with the detail "not observable in this tier". The same goes for
+   `no_tool_calls`: when no call is visible but the profile has a tool the session can't observe,
+   the check is skipped rather than passed, because a hidden search could still have happened.
 
 ### Trials, thresholds and pass^k
 
@@ -362,13 +388,18 @@ Two policies keep the numbers honest and the cost down:
 
 - **Early stop on failure, never on success.** Once a case can no longer reach its threshold
   (two failures out of three), its remaining trials are skipped. Passing cases always run every
-  trial, so the pass rate and pass^2 use every sample. A crashed trial counts as a failed trial, not a crashed run.
-- **Hard budget.** `--max-cost-usd` *reserves* a pessimistic estimate before each trial starts.
-  The estimate is the larger of the static estimate and the most expensive trial seen so far.
+  trial, so the pass rate and pass^2 use every sample. A crashed trial counts as a failed
+  trial (`crashed: true` in its result), not a crashed run.
+- **Hard budget.** `--max-cost-usd` *reserves* a pessimistic estimate when a trial starts
+  running, that is, once a concurrency slot is free; a trial still queued holds no budget. The
+  estimate is the larger of the static estimate and the most expensive trial seen so far.
   Concurrent trials together therefore cannot overshoot the cap. Real cost comes from reported
-  token usage and, for voice, billed session time. A model missing from the price table is priced
-  as the most expensive known model, so the guard errs toward stopping early. When the budget runs
-  out the suite is marked `budget_exceeded` and the CLI exits with `3`.
+  token usage and, for voice, billed session time, with two exceptions. A crashed trial reports
+  no usage although it may have spent money, so it is charged its reservation, and that is the
+  `cost_usd` its result shows. A failed judge call is charged an estimate. A model missing from
+  the price table is priced as the most expensive known model, so the guard errs toward stopping
+  early. When the budget runs out the suite is marked `budget_exceeded` and the CLI exits
+  with `3`.
 
 ---
 
@@ -384,7 +415,9 @@ reaches production untested. The detector sits between the two. It answers one q
 flowchart TB
     A["python -m evals.impact plan --base origin/main --head HEAD"] --> MB["merge-base(base, head)"]
     MB --> CF["git diff --name-only"]
-    CF --> FP{"any behaviour-relevant path?<br/>agent/ prompts/ evals/ uv.lock"}
+    CF --> PC{"planner changed?<br/>evals/impact/ or evals.yml"}
+    PC -- "yes: force a full run" --> EX
+    PC -- "no" --> FP{"any behaviour-relevant path?<br/>agent/ prompts/ evals/ uv.lock"}
     FP -- "no: docs, frontend, CI" --> FAST["fast path: skip all, with reason"]
     FP -- "yes" --> EX["git archive base tree and head tree<br/>into temp dirs"]
     EX --> PB["probe.py subprocess, base tree<br/>PYTHONPATH=base/agent, empty cwd, scrubbed env"]
@@ -410,8 +443,17 @@ The design choices behind the pipeline:
   `{"ok": false}` instead of crashing the planner. The probe also runs from an empty working
   directory with a scrubbed environment and `Settings(_env_file=None)`, so a developer's `.env`
   can't leak into the fingerprint. Both probes run in parallel and never touch the network.
-- **One converter for both sides.** Both trees are serialized with the *head* checkout's
-  `evals.toolschema` and normalizers, so the two sides are always compared like for like.
+- **One converter for both sides.** Both trees are serialized with the planner's own copy of
+  `evals.toolschema` and the normalizers, so the two sides are always compared like for like.
+  Locally that copy is your checkout. In CI it is the base commit's (next bullet).
+- **The planner judging a PR is the base commit's.** The `plan` job exports `evals/` from the
+  base with `git archive` and runs that copy against the checkout, so a PR can't edit the rules
+  that decide which of its evals run. If the base has no planner yet, or the PR changes
+  `evals/impact/**` or `.github/workflows/evals.yml`, everything runs, with the reason
+  `planner code changed: running everything`. The planner enforces the second rule itself too
+  (`PLANNER_PATHS` in `evals/impact/cli.py`), so a local plan shows the same forced run.
+  Because `pull_request` workflows come from the PR, edits to the workflow can't be prevented,
+  only made visible, and they force a full run (§8).
 - **Runtime variables become placeholders.** `today` renders as `<runtime:today>`, so base and
   head render identically on any day.
 
@@ -428,17 +470,18 @@ A snapshot is a flat map of `{component_key: digest}`. The planner diffs the two
 | `profile.tools:<profile>` | the profile's tool list | brain + voice of suites on that profile |
 | `profile.error:<profile>` | a profile that fails to render on one side | brain + voice of suites on that profile |
 | `tool.schema:<tool>` | the tool's JSON exactly as the backend model sees it | brain + voice of suites whose *profile exposes* the tool, even if no case calls it |
-| `tool.impl:<tool>` | normalized AST of the files in the tool's `source_modules` | **brain** tier of suites that *declare* the tool in `tools` |
+| `tool.impl:<tool>` | normalized AST of the files in the tool's `source_modules`, plus the agent modules those files import (transitively; core files and `config.py` excluded) | **brain** tier of suites that *declare* the tool in `tools` |
 | `code.core` | `voice_agent/__init__.py`, `voice_agent/prompts/`, `tools/__init__.py`, `tools/registry.py` | everything |
 | `code.backend_runtime` | `model.py`, which builds the GPT-Live model *and* `build_responses_options`, the backend config the brain tier reuses | brain + voice of every suite |
 | `code.voice_runtime` | `agent.py`, `main.py` | voice tier of every suite |
-| `code.other:<path>` | any other agent module (e.g. `runtime.py`) | everything (unknown means conservative) |
+| `code.post_call` | `recording.py` (builds and exports the call record after the session closes) | nothing: it can't change what the caller hears; unit tests cover it |
+| `code.other:<path>` | any other file under `agent/voice_agent/` (e.g. `runtime.py`), data files included | everything (unknown means conservative) |
 | `config.voice:<field>` | `Settings` defaults for `gpt_live_model` and `gpt_live_voice`, the only voice-only settings | voice tier of every suite |
 | `config.shared:<field>` | every other behavioural `Settings` default | brain + voice of every suite |
 | `config.logic` | the rest of `config.py` (validators, helpers) | brain + voice of every suite |
 | `suite:<name>` | the suite YAML, parsed | that suite's tiers |
 | `runner:brain` / `runner:voice` / `runner:shared` | eval runner code: `runners/brain.py`, `runners/voice.py`, the rest of `runners/` plus `schema.py`, `toolschema.py`, `cli.py` | that tier (shared: both) of every suite |
-| `deps:<pkg>` | `uv.lock` versions of `livekit*` and `openai` | everything |
+| `deps:<pkg>` | `uv.lock` versions of `livekit*` and `openai`, including a non-registry `source` (a git revision or local path) and every entry of a package uv resolved more than once | everything |
 | anything new | | everything |
 
 Two rows are less obvious than the others:
@@ -451,8 +494,9 @@ Two rows are less obvious than the others:
   one tool can change when the model reaches for a different one.
 
 Settings in `config.py` are compared **field by field**. Credentials, URLs, `log_level`, `livekit_*`
-and `opentable_*` fields (evals always use the mock) are ignored. A new field is treated as
-behavioural until someone adds it to an allow-list.
+`opentable_*` fields (evals always use the mock) and `call_*` recording fields (post-call only) are ignored. Credentials are matched as
+whole name segments (`*_api_key`, `*_secret`, `*_token`), so `gpt_live_backend_max_output_tokens`
+stays behavioural. A new field is treated as behavioural until someone adds it to an allow-list.
 
 ### What does *not* trigger evals, and why that is safe
 
@@ -461,9 +505,11 @@ answers one question: *could this edit change behaviour?* When unsure, it answer
 
 | Edit | Triggers? | Why |
 |---|---|---|
-| HTML comments, trailing spaces, runs of spaces, extra blank lines between paragraphs | no | The fingerprint uses the rendered prompt with comments stripped and whitespace collapsed. |
+| HTML comments, trailing spaces, runs of spaces, extra blank lines between paragraphs | no | The composer strips HTML comments while rendering; the fingerprint then collapses whitespace. A comment that survives rendering (opened in one module, closed in another) reaches the model, so it counts as a change. |
 | Re-wrapping a paragraph at a different column | no | Soft-wrapped lines are joined back together. This is the most common "no-op" prompt edit. |
 | Turning a paragraph into a bullet list, or adding a blank line *between* list items | **yes** | Lines that start a markdown block (`-`, `1.`, `#`, `>`, `\|`, fences) keep their structure, and models respond to structure. |
+| Re-indenting or un-nesting a list item | **yes** | Block-starting lines keep their indentation, so nesting survives. |
+| Re-flowing text inside a fenced code block | **yes** | Inside a fence only trailing spaces are dropped. Examples are literal. |
 | Any change to words, punctuation or casing | **yes** | Models are sensitive to all three. |
 | A module's `version:` or `description:` | no | Not part of the rendered text. |
 | Python comments and formatting | no | Code is compared as an AST dump, with no line numbers. |
@@ -471,8 +517,9 @@ answers one question: *could this edit change behaviour?* When unsure, it answer
 | A tool's docstring or `Args:` text | **yes**, via `tool.schema` | LiveKit turns these into the tool description the model reads. |
 | A settings default re-quoted (`"low"` → `'low'`) or re-wrapped `Field(...)` | no | Defaults are compared as AST. |
 | Suite comments, key order, quoting, flow vs block style | no | YAML is compared as parsed data. |
-| Changes to `evals/impact/`, `evals/tests/`, `evals/README.md`, `evals/report.py` | no | These decide what runs and how it is displayed, not how the agent behaves or how it is graded. |
-| `docs/`, `frontend/`, CI files | no, fast path | Rendering is skipped entirely. |
+| `evals/tests/`, `evals/README.md`, `evals/report.py` | no | These don't change how the agent behaves or how it is graded. |
+| `evals/impact/**` or `.github/workflows/evals.yml` | **yes, everything** | The planner can't judge a change to itself. CI runs the base commit's planner, which forces a full run. |
+| `docs/`, `frontend/`, other CI files (e.g. `ci.yml`) | no, fast path | Rendering is skipped entirely. |
 
 **Why ignoring *all* docstrings is safe:** some docstrings are model-visible. The
 `@function_tool` docstring and its `Args:` section become the tool's description and parameter
@@ -487,15 +534,15 @@ fooled by edits that never reach the model.
 
 These plans were produced by cloning this repo into a scratch directory, making one commit per
 scenario, and running `python -m evals.impact plan --base HEAD~1 --head HEAD --format text`.
-Each run took about 2–3 seconds. The fingerprints are real, and the SHAs belong to the throwaway
-clone.
+Each run that fingerprints both trees took about 3 seconds; the fast path took a quarter of a
+second. The fingerprints are real, and the SHAs belong to the throwaway clone.
 
 **1. Comment, reflow and blank lines in a voice prompt module.** The diff adds an HTML comment,
 re-wraps a bullet across two lines with extra spaces, and inserts two blank lines before a
 heading in `prompts/modules/core/voice_style.md`:
 
 ```text
-change-impact plan  base=fd73e0420b2e  head=73ae220cbc4e
+change-impact plan  base=041892519c22  head=dbe2608144af
   nothing to run
   skip brain conversation_style: no behaviour-affecting change for this tier
   skip voice conversation_style: no behaviour-affecting change for this tier
@@ -505,20 +552,20 @@ change-impact plan  base=fd73e0420b2e  head=73ae220cbc4e
   skip voice web_search: no behaviour-affecting change for this tier
 ```
 
-A first attempt at this commit also added a blank line *between two bullets*. The detector planned
-the voice tier for it (`+1/-0 normalized lines`). That is correct: a blank line there turns a tight
-list into a loose one, which is a structural change.
+An earlier attempt at this commit also added a blank line *between two bullets*. The detector
+planned the voice tier for it (`+1/-0 normalized lines`). That is correct: a blank line there
+turns a tight list into a loose one, which is a structural change.
 
 **2. Reword one voice rule** ("usually one or two sentences" → "usually one sentence, two at most").
 Only the voice tier runs, because the backend never sees voice instructions:
 
 ```text
-change-impact plan  base=73ae220cbc4e  head=c3ce6f64c85c
-  RUN  voice conversation_style  [fp c188dcd83752a8c1]
+change-impact plan  base=dbe2608144af  head=2a5c14d85c8f
+  RUN  voice conversation_style  [fp f41765822041a2e9]
          - voice prompt of profile `concierge` changed (+1/-1 normalized lines)
-  RUN  voice restaurant_availability  [fp b433407ccf4d60ac]
+  RUN  voice restaurant_availability  [fp 2a56c8e593a12dea]
          - voice prompt of profile `concierge` changed (+1/-1 normalized lines)
-  RUN  voice web_search  [fp 3be3cc7cb262e25f]
+  RUN  voice web_search  [fp 9a0b2d2aff4bcd38]
          - voice prompt of profile `concierge` changed (+1/-1 normalized lines)
   skip brain conversation_style: no behaviour-affecting change for this tier
   skip brain restaurant_availability: no behaviour-affecting change for this tier
@@ -529,12 +576,12 @@ change-impact plan  base=73ae220cbc4e  head=c3ce6f64c85c
 change is model-visible, so both tiers run for every suite on the profile, `web_search` included:
 
 ```text
-change-impact plan  base=c3ce6f64c85c  head=d045c84d5ed1
-  RUN  brain conversation_style  [fp b534b2d832bec263]
+change-impact plan  base=2a5c14d85c8f  head=0421316ae413
+  RUN  brain conversation_style  [fp 89e5659b93b82193]
          - model-visible schema of tool `check_restaurant_availability` changed
-  RUN  voice conversation_style  [fp d4c51a97e936d1b2]
+  RUN  voice conversation_style  [fp f13249d293844447]
          - model-visible schema of tool `check_restaurant_availability` changed
-  RUN  brain restaurant_availability  [fp ef4a96e64e8a7aab]
+  RUN  brain restaurant_availability  [fp 36c67232275f5301]
          - model-visible schema of tool `check_restaurant_availability` changed
   ...  (voice restaurant_availability, brain + voice web_search: same reason)
 ```
@@ -543,7 +590,7 @@ change-impact plan  base=c3ce6f64c85c  head=d045c84d5ed1
 file. The model never sees that text, so nothing runs:
 
 ```text
-change-impact plan  base=d045c84d5ed1  head=3ac8aa33c850
+change-impact plan  base=0421316ae413  head=8dd3a6ca7c68
   nothing to run
   skip brain conversation_style: no behaviour-affecting change for this tier
   ...
@@ -554,10 +601,10 @@ instead of 1/7). The brain tier runs for the two suites that *declare* the tool.
 `web_search` is skipped, and so is every voice run:
 
 ```text
-change-impact plan  base=3ac8aa33c850  head=26116dba5c7e
-  RUN  brain conversation_style  [fp d00ab2110e430cf0]
+change-impact plan  base=8dd3a6ca7c68  head=1dc099b764e4
+  RUN  brain conversation_style  [fp 2e103d85e8f7fdbb]
          - implementation of tool `check_restaurant_availability` changed (normalized AST)
-  RUN  brain restaurant_availability  [fp 36a018de9c4153c8]
+  RUN  brain restaurant_availability  [fp f2d248e377ee4dfc]
          - implementation of tool `check_restaurant_availability` changed (normalized AST)
   skip voice conversation_style: no behaviour-affecting change for this tier
   skip voice restaurant_availability: no behaviour-affecting change for this tier
@@ -569,7 +616,7 @@ change-impact plan  base=3ac8aa33c850  head=26116dba5c7e
 or rendered:
 
 ```text
-change-impact plan  base=26116dba5c7e  head=0acad99bf94e
+change-impact plan  base=1dc099b764e4  head=2d376f5ebbe0
   note: fast path: no behaviour-relevant files changed (2 file(s): README.md, docs/tools.md)
   nothing to run
   skip brain conversation_style: no behaviour-relevant files changed (2 file(s): README.md, docs/tools.md)
@@ -580,7 +627,7 @@ change-impact plan  base=26116dba5c7e  head=0acad99bf94e
 voice tier only:
 
 ```text
-  RUN  voice conversation_style  [fp e21915ce290c1309]
+  RUN  voice conversation_style  [fp 5ab25ddcb7bf93c5]
          - setting `gpt_live_voice` default: 'marin' → 'cedar'
   ...  (voice restaurant_availability, voice web_search)
   skip brain conversation_style: no behaviour-affecting change for this tier
@@ -589,9 +636,9 @@ voice tier only:
 Changing backend reasoning effort (`"low"` → `"medium"`) runs both tiers for every suite:
 
 ```text
-  RUN  brain conversation_style  [fp 85ca8c3430c1bfe1]
+  RUN  brain conversation_style  [fp 95cf73e9afd76a0f]
          - setting `gpt_live_backend_reasoning_effort` default: 'low' → 'medium'
-  RUN  voice conversation_style  [fp f8700637b6845d6e]
+  RUN  voice conversation_style  [fp 3356483f28d82dd9]
          - setting `gpt_live_backend_reasoning_effort` default: 'low' → 'medium'
   ...  (all six suite x tier pairs)
 ```
@@ -601,11 +648,25 @@ Changing backend reasoning effort (`"low"` → `"medium"`) runs both tiers for e
 `code.backend_runtime` runs both tiers for every suite:
 
 ```text
-change-impact plan  base=ad8ff4c3d6b5  head=837dccc6de14
-  RUN  brain conversation_style  [fp 54b94284cef2957b]
+change-impact plan  base=ebe4dc4b9e04  head=7ea91bbcbbd2
+  RUN  brain conversation_style  [fp 0a1c970bd7b93dfc]
          - model construction code (model.py, incl. backend options) changed (normalized AST)
-  RUN  voice conversation_style  [fp c2de907a02e355c3]
+  RUN  voice conversation_style  [fp 9a612ed068376e3a]
          - model construction code (model.py, incl. backend options) changed (normalized AST)
+  ...  (all six suite x tier pairs)
+```
+
+**8. Touch the planner** (append a comment to `evals/impact/rules.py`). The planner can't vouch
+for a change to itself, so everything runs. The fingerprints equal scenario 7's, because the
+behaviour under test didn't change:
+
+```text
+change-impact plan  base=7ea91bbcbbd2  head=c4ef85a70777
+  note: forced full run: planner code changed: running everything
+  RUN  brain conversation_style  [fp 0a1c970bd7b93dfc]
+         - forced: planner code changed: running everything
+  RUN  voice conversation_style  [fp 9a612ed068376e3a]
+         - forced: planner code changed: running everything
   ...  (all six suite x tier pairs)
 ```
 
@@ -615,7 +676,7 @@ scenario 4:
 ```text
 brain_matrix={"suite":["conversation_style","restaurant_availability"]}
 run_brain=true
-brain_fingerprints={"conversation_style":"d00ab2110e430cf0","restaurant_availability":"36a018de9c4153c8"}
+brain_fingerprints={"conversation_style":"2e103d85e8f7fdbb","restaurant_availability":"f2d248e377ee4dfc"}
 voice_matrix={"suite":[]}
 run_voice=false
 voice_fingerprints={}
@@ -626,7 +687,7 @@ any=true
 
 Every planned run carries a **fingerprint**: a hash of every head component that can affect that
 (suite, tier) pair. Compare the brain `conversation_style` fingerprint after scenario 4
-(`d00ab2110e430cf0`) with a forced `evals:full` plan for the docs-only commit that followed it.
+(`2e103d85e8f7fdbb`) with a forced `--force-all` plan for the docs-only commit that followed it.
 That plan printed the same value, because a docs change can't change the behaviour under test.
 Two commits with equal fingerprints should produce the same eval results, apart from sampling
 noise. The runner stores the fingerprint in every result file (`--fingerprints`) and in the JUnit
@@ -642,14 +703,18 @@ is also a natural cache key, but the current code does not use it to skip runs (
 | One profile fails to render on one side | `profile.error:<profile>` runs brain + voice for that profile's suites. |
 | A suite enables a tier but none of its cases use it | Skipped with `suite has no <tier>-tier cases`. |
 | A suite was deleted | Listed as `suite removed`. |
-| Label **`evals:full`**, `--force-all`, `EVALS_FORCE_ALL=1`, the nightly schedule, `workflow_dispatch` (defaults to force) | Everything runs, with `forced: label \`evals:full\``-style reasons. The fast path is bypassed. |
-| Label **`evals:skip`** | Nothing runs, and every pair lists `label \`evals:skip\``. It wins over `evals:full`. |
-| `--suites a,b` / `--tiers brain` | Filters the plan. Skipped pairs say `not selected`. |
+| The diff touches `evals/impact/**` or `.github/workflows/evals.yml`, or (CI only) the base has no planner yet | Everything runs, with `forced: planner code changed: running everything`. The fast path is bypassed. |
+| Label **`evals:full`**, `--force-all`, `EVALS_FORCE_ALL=1`, the nightly schedule, `workflow_dispatch` (defaults to force) | Everything runs, with `forced: label \`evals:full\``-style reasons. `EVALS_FORCE_REASON` sets the reason for an `EVALS_FORCE_ALL` run (the workflow uses it for the planner case). The fast path is bypassed. |
+| Label **`evals:skip`** | Nothing runs, and every pair lists `label \`evals:skip\``. It wins over `evals:full` and over a forced run. |
+| `--suites a,b` / `--tiers brain` | Filters the plan. Skipped pairs say `not selected`. An unknown suite or tier name is an error (exit `2`), never an empty plan that reports green. |
 | `--no-merge-base`, `--no-fast-path` | Diff against the base tip, or always fingerprint both trees. |
 
 Labels reach the detector through `EVALS_LABELS` or `--labels`, never through shell interpolation.
 Suite names from the (PR-controlled) tree are checked against `^[a-z0-9][a-z0-9_\-]{0,63}$`
-before they are allowed into a CI matrix.
+before they are allowed into a CI matrix. PR-controlled text that ends up in the plan table or
+the PR comment (setting defaults, paths, error messages, judge reasons, model output) is
+rendered inertly: escaped in plan cells, and wrapped in inline code in the failure list, so it
+can't inject links, images, mentions or HTML.
 
 ---
 
@@ -659,60 +724,87 @@ before they are allowed into a CI matrix.
 
 ```mermaid
 flowchart LR
-    Trig["pull_request (every PR event, no paths filter)<br/>workflow_dispatch<br/>schedule 07:17 UTC nightly"] --> Plan
-    Plan["plan<br/>evals.impact plan --format github<br/>+ fork gate"] -- "run_brain and can_spend" --> Brain
+    Trig["pull_request: opened, synchronize, reopened,<br/>ready_for_review, labeled, unlabeled (no paths filter)<br/>workflow_dispatch<br/>schedule 07:17 UTC nightly"] --> Plan
+    Plan["plan<br/>base commit's planner, --format github<br/>+ fork gate"] -- "run_brain and can_spend" --> Brain
     Plan -- "run_voice and can_spend" --> Voice
     Brain["brain matrix<br/>one job per suite<br/>max-parallel 3, env: evals"] -- "success or skipped" --> Voice
-    Voice["voice matrix<br/>one job per suite<br/>max-parallel 2, env: evals<br/>TTS cache"] --> Report
+    Voice["voice matrix<br/>one job per suite<br/>max-parallel 2, env: evals<br/>TTS cache per suite"] --> Report
     Brain --> Report
-    Plan --> Report["report<br/>aggregate results + plan<br/>sticky PR comment"]
+    Plan --> Report["report<br/>aggregate results + plan<br/>read-only token"]
+    Report --> Comment["comment<br/>sticky PR comment<br/>pull-requests: write, no checkout"]
 ```
 
 The gates run from cheapest to most expensive:
 
-1. **Fast path in `plan`.** Every PR event starts the workflow; there is deliberately no
-   `on.pull_request.paths` filter, because GitHub applies it to `labeled` events too and adding
-   `evals:full` to a docs-only PR would then do nothing. Instead, when no behaviour-relevant file
-   changed (docs, frontend, CI), the planner skips without exporting or rendering anything, and
-   the paid jobs never start. That takes seconds.
-2. **`plan` job.** It needs a full clone (`fetch-depth: 0`) to export the merge-base tree. It emits
-   `brain_matrix`, `voice_matrix`, per-tier fingerprints and a step-summary table, and uploads
-   `eval-plan.json`.
+1. **Fast path in `plan`.** Every push to a PR and every label change starts the workflow; there
+   is deliberately no `on.pull_request.paths` filter, because GitHub applies it to `labeled`
+   events too and adding `evals:full` to a docs-only PR would then do nothing. Instead, when no
+   behaviour-relevant file changed (docs, frontend, `ci.yml`), the planner skips without
+   exporting or rendering anything, and the paid jobs never start. That takes seconds.
+2. **`plan` job.** It needs a full clone (`fetch-depth: 0`) to export the base and merge-base
+   trees. Its steps:
+   - **Resolve base ref**: the PR's base SHA, or `origin/<default branch>` for dispatch and
+     schedule runs.
+   - **Export trusted planner (base commit)**: `git archive "$BASE" evals` into
+     `$RUNNER_TEMP/trusted-planner`. If the base has no planner, the checkout's planner is used
+     and the run is forced; if the diff from the merge-base touches `evals/impact` or
+     `.github/workflows/evals.yml`, the run is forced too (§4).
+   - **Plan evals**: runs `python -m evals.impact plan` from `$RUNNER_TEMP/trusted-planner`
+     with `--repo "$GITHUB_WORKSPACE"`, so the base's planner code fingerprints the PR's
+     checkout. It emits `brain_matrix`, `voice_matrix`, per-tier fingerprints and a
+     step-summary table, and writes `eval-plan.json`, which is uploaded as an artifact.
 3. **Secrets gate.** Fork PRs get `can_spend=false`, and paid jobs skip with a note ("A
-   maintainer can run them via workflow_dispatch"). If `OPENAI_API_KEY` isn't configured, the
-   runner's `--skip-if-no-key` writes *skipped* results and exits 0.
+   maintainer can push the branch to this repository and run them via workflow_dispatch"). If
+   `OPENAI_API_KEY` isn't configured, the runner's `--skip-if-no-key` writes *skipped* results
+   and exits 0.
 4. **Brain before voice.** The voice job requires `needs.brain.result` to be `success` or
    `skipped`. `skipped` is allowed because a voice-only change plans no brain jobs. If the brain
    tier fails, no GPT-Live minutes are spent, and the report explains why.
 5. **Budget.** Each matrix job runs with `--max-cost-usd`, taken from the `max_cost_usd` dispatch
-   input, then the `EVALS_MAX_COST_USD` repository variable, and defaulting to **$3 per job**.
+   input (which itself defaults to $5), then the `EVALS_MAX_COST_USD` repository variable, and
+   defaulting to **$3 per job**.
 
 Other details:
 
 - **`environment: evals`** holds the `OPENAI_API_KEY` secret. You can attach protection rules to
   it, for example required reviewers, so that no PR can spend money without a human approving
-  the run.
+  the run. Those rules live in the repository settings, not in the workflow file, so a fresh
+  fork or copy of this repo has none until you configure them.
+- **Least privilege.** The workflow's default token is `contents: read`. Every checkout uses
+  `persist-credentials: false`, and every third-party action is pinned to a full commit SHA
+  (with the version in a comment).
 - **Concurrency.** There is one run per PR, and a new push cancels the stale one. Label events for
   labels outside `evals:*` get a unique no-op group, so adding a `docs` label can never cancel a
   real run. The `plan` job skips those events too.
-- **TTS audio cache.** `evals/.cache/tts` is cached with `actions/cache`, keyed on
-  `hashFiles('evals/suites/*.yaml')` and falling back to older caches. Synthesized callers are
-  paid for once, not on every run.
+- **TTS audio cache.** `evals/.cache/tts` is cached with `actions/cache`, one cache per suite:
+  the key is `eval-tts-<suite>-` plus
+  `hashFiles('evals/suites/*.yaml', 'evals/runners/voice.py')`, falling back to that suite's
+  older caches. Per-suite keys matter because matrix jobs sharing one key would race: the first
+  save would win and the other suites would get an exact-key hit without their audio.
+  Synthesized callers are paid for once, not on every run.
 - **Artifacts.** Each job uploads its results (JSON, JUnit XML, Markdown) and appends its
   Markdown to the job summary. The artifacts are kept for 30 days.
-- **Sticky PR comment.** `report` runs even when earlier jobs failed. It combines every
-  result with the plan and posts one comment marked `<!-- gpt-live-evals-report -->`. Later runs
-  update that comment instead of adding new ones. The comment shows a results table (pass rate,
-  min pass^2, p50 latency, p50 first response, cost), a collapsible list of failures, and a
-  collapsible **change-impact plan** that lists what ran, what was skipped, and why. Fork PRs get
-  the report in the job summary instead, because their token is read-only.
+- **Report, then comment.** The work is split so that PR code never runs next to a write token.
+  `report` runs unless the run was cancelled (a newer push must not post a stale report), with
+  the default read-only token. It combines every result with the plan into `eval-report.md`,
+  appends it to the job summary and uploads it. A separate `comment` job, the only one with
+  `pull-requests: write`, checks nothing out: it downloads that file and posts it as one comment
+  marked `<!-- gpt-live-evals-report -->`, truncated at 60,000 characters with a link to the run
+  summary (GitHub rejects comments over 65,536). Later runs update that comment instead of adding
+  new ones, and only a comment by `github-actions[bot]` that starts with the marker is ever
+  edited. The comment shows a results table (pass rate, min pass^2, p50 latency, p50 first
+  response, cost), a collapsible list of failures, and a collapsible **change-impact plan** that
+  lists what ran, what was skipped, and why. Fork PRs skip `comment` and get the report in the
+  job summary only, because their token is read-only.
 - **Nightly full run.** This catches changes that no diff can show, such as OpenAI updating a
   model on its side.
 
 ### `ci.yml`: free checks on every PR
 
-Nothing in `ci.yml` needs a secret. A `changes` job (`dorny/paths-filter`) decides which areas
-changed, and then these jobs run:
+Nothing in `ci.yml` needs a secret. On a PR, a `changes` job (`dorny/paths-filter`) decides
+which areas changed, and only the jobs for those areas run; a push to `main` runs all of them.
+`lint`, `test` and `prompts` run for changes under `agent/`, `evals/`, `prompts/`,
+`pyproject.toml`, `uv.lock` or `.github/workflows/`; `frontend` runs for `frontend/` or `ci.yml`:
 
 - **`lint`**: `ruff check` and `ruff format --check`.
 - **`test`**: `pytest` over `agent/tests` and `evals/tests`.
@@ -763,7 +855,18 @@ Useful `run` flags:
 
 **Results.** Each suite writes `evals/.results/<tier>__<suite>.json` (the source of truth: every
 trial, check, judge verdict, transcript, latency and cost), `.xml` (JUnit, for any CI UI) and
-`.md` (a summary table). `EVALS_RESULTS_DIR` or `--results-dir` moves them.
+`.md` (a summary table). `EVALS_RESULTS_DIR` or `--results-dir` moves them. The fields worth
+knowing in the JSON:
+
+- per suite: `status` (`completed`, `budget_exceeded` or `skipped`), `passed`,
+  `cost_usd`, `fingerprint`, and `model_info` (backend model, reasoning, tools);
+- per case: `passed`, `pass_rate`, `pass_hat_k` and `k` (§3);
+- per trial: `passed`, `checks`, `judge`, `transcript`, `latency_s`,
+  `first_response_latency_s`, `cost_usd`, `error`, and `crashed` (the conversation raised,
+  and `cost_usd` is the reservation it was charged);
+- per trial `meta`: in the brain tier `response_id` and `incomplete_responses` (the reason of
+  every response that came back `incomplete`); in the voice tier `voice_to_voice_latency_s`
+  (per turn), `turn_timeouts`, `agent_audio_s` and `asr_similarity`.
 
 **Exit codes:**
 
@@ -771,7 +874,7 @@ trial, check, judge verdict, transcript, latency and cost), `.xml` (JUnit, for a
 |---|---|
 | `0` | all passed, or skipped (e.g. no key with `--skip-if-no-key`) |
 | `1` | at least one case failed its threshold |
-| `2` | configuration error: invalid suite, unknown suite name, profile doesn't render, missing key |
+| `2` | configuration error: invalid suite, unknown suite name, profile doesn't render, missing key. `evals.impact plan` also exits `2` for an unknown `--suites`/`--tiers` value or a bad git ref |
 | `3` | budget exhausted before the run completed |
 
 **Environment knobs:**
@@ -781,7 +884,8 @@ trial, check, judge verdict, transcript, latency and cost), `.xml` (JUnit, for a
 - `EVALS_PRICING_JSON`, which overrides the price table, for example
   `'{"gpt-5.6-luna": {"input": 1.25, "output": 10.0}}'` (USD per 1M tokens).
 - `EVALS_RESULTS_DIR`, `EVALS_LOG_LEVEL`.
-- `EVALS_FORCE_ALL`, `EVALS_LABELS` for the planner.
+- `EVALS_FORCE_ALL`, `EVALS_FORCE_REASON` (the reason shown for a forced run) and
+  `EVALS_LABELS` for the planner.
 
 Note that the runners load `Settings()` like the agent does. A local `.env` can therefore change
 the backend model or voice under test. Only `RESTAURANT_PROVIDER` is forced (to `mock`).
@@ -809,7 +913,8 @@ These are opinionated, and each one is implemented in this repo.
    judgment can grade.
 6. **Give the judge only the transcript and a binary rubric, and pin its model.** A judge that
    sees the prompt grades intent. A judge on a 1–10 scale drifts. A judge that silently upgrades
-   with the agent moves the goalposts.
+   with the agent moves the goalposts. And fence the transcript as data: it contains tool output
+   and web content, and a judge that follows instructions found there can be talked into a PASS.
 7. **Report pass^k (here pass^2).** Every caller is one sample. Early-stop failing cases, but never stop a
    passing case early.
 8. **Test precision as well as recall.** Every suite has a "don't call a tool" case
@@ -858,6 +963,41 @@ These are opinionated, and each one is implemented in this repo.
   (`--trials 10`) when you need a finer reliability estimate for a case.
 - **Fingerprints are recorded but not yet used as a cache.** Re-running a PR whose fingerprints
   match an earlier green run still pays again.
+- **`tool.impl` re-runs only suites that declare the tool.** A suite whose profile *exposes*
+  the tool but doesn't list it in `tools` isn't re-run when the tool's code changes, although
+  the model could still call it there. Here that is the `web_search` suite and the restaurant
+  tool. That is a cost and policy choice, not a proof of safety: declaring a tool in a suite is
+  how you opt that suite into its implementation changes.
+
+### CI trust boundaries
+
+Running the base commit's planner closes the obvious hole, where a PR rewrites the rules that
+decide which of its evals run. It doesn't make the workflow tamper-proof:
+
+- **`pull_request` workflows come from the PR.** A PR can edit `evals.yml` itself, including
+  the step that exports the trusted planner. That can't be prevented from inside the workflow,
+  only made visible: such a PR shows the diff and forces a full run. If you rely on these evals
+  as a gate, protect `main` with a branch ruleset that makes the eval jobs required status
+  checks and requires review of workflow changes (for example with a `CODEOWNERS` entry for
+  `.github/`).
+- **The planner's dependencies come from the PR's lockfile.** The `plan` job runs
+  `uv sync --locked` on the checkout, so the base's planner code runs in an environment the PR
+  can change (PyYAML, for example). The probe also imports the PR's `voice_agent`, by design.
+  A dependency bump shows up in the diff, and a `livekit*` or `openai` bump forces both tiers,
+  but nothing stops a malicious lockfile from lying to the planner.
+- **Labels are an override, and `evals:skip` wins.** Anyone who can label a PR can skip its
+  paid evals, even when the planner forced a full run. That is intended (someone has to be
+  able to stop spending), but it means the label permission is part of the gate.
+- **Required reviewers aren't in the repo.** The `evals` environment's protection rules
+  (required reviewers, deployment branches) are configured in the repository settings. Until
+  someone sets them, every non-fork PR from a user with push access can spend up to the
+  per-job budget without approval.
+- **Pinned actions age.** Every action is pinned to a commit SHA of its current major
+  (`actions/checkout` v4, `actions/cache` v4, `actions/upload-artifact` and
+  `download-artifact` v4, `actions/setup-node` v4, `actions/github-script` v7,
+  `astral-sh/setup-uv` v6). Several of those majors run on Node 20, which GitHub Actions is
+  deprecating. After a first real run confirms the workflows, bump them to the current majors
+  and re-pin the SHAs.
 
 ### Unverified: built without API keys
 
