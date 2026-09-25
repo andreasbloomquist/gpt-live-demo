@@ -475,28 +475,139 @@ def _sentiment(s: _Signals) -> list[SentimentDraft]:
     return points
 
 
-def _intent_sentence(intent: str) -> str:
-    if intent.startswith("Table for"):
-        return f"The caller wanted a {intent[:1].lower()}{intent[1:]}."
-    if intent.startswith("Information: "):
-        return f"The caller asked about: {intent.removeprefix('Information: ')}."
-    return f"The caller said: {intent}"
+# Index = hour on a 12-hour clock (0 and 12 are both "twelve").
+_NUMBERS = (
+    "twelve", "one", "two", "three", "four", "five", "six",
+    "seven", "eight", "nine", "ten", "eleven", "twelve",
+)  # fmt: skip_MINUTE_WORDS = {
+    0: ["o'clock", ""],
+    15: ["fifteen"],
+    30: ["thirty"],
+    45: ["forty-five", "forty five"],
+}
 
 
-def _summary(s: _Signals, intent: str, outcome_reason: str, metrics: Metrics) -> str:
-    issues = []
+def _clock(hhmm: object) -> str:
+    """``"19:15"`` -> ``"7:15"`` (dinner context; the meridiem is obvious)."""
+    return _spoken_time(hhmm).split(" ")[0]
+
+
+def _spoken_variants(hhmm: str) -> list[str]:
+    """How a caller might say a time: ``"19:15"`` -> ``["seven fifteen", "quarter past seven",
+    "7:15"]``. Only quarter hours, which is what the reservation tool returns."""
+    try:
+        t = dt.datetime.strptime(hhmm, "%H:%M")
+    except ValueError:
+        return []
+    hour, next_hour = _NUMBERS[t.hour % 12], _NUMBERS[(t.hour + 1) % 12]
+    variants = [_clock(hhmm)]
+    variants += [f"{hour} {m}".strip() for m in _MINUTE_WORDS.get(t.minute, [])]
+    variants += {
+        15: [f"quarter past {hour}"],
+        30: [f"half past {hour}"],
+        45: [f"quarter to {next_hour}"],
+    }.get(t.minute, [])
+    return [v for v in variants if v != hour]  # a bare "seven" is too ambiguous
+
+
+def _chosen_time(times: list[str], user: list[Turn]) -> str | None:
+    """The offered time the caller named last, if any."""
+    for turn in reversed(user):
+        text = turn.text.lower()
+        for hhmm in times:
+            if any(re.search(rf"\b{re.escape(v)}\b", text) for v in _spoken_variants(hhmm)):
+                return hhmm
+    return None
+
+
+def _join(items: list[str]) -> str:
+    """``["a", "b", "c"]`` -> ``"a, b or c"``."""
+    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} or {items[-1]}"
+
+
+def _check_story(s: _Signals) -> str:
+    """What the availability checks found and what the agent did with it. Every variant starts
+    with the restaurant's name so a prefix never has to re-case it."""
+    successful = [(args, out) for call, args, out in s.checks if not call.is_error and out]
+    if not successful:
+        restaurant = s.checks[-1][1].get("restaurant", "the restaurant")
+        return f"Every availability check for {restaurant} failed, so the caller got no answer"
+    args, out = successful[-1]
+    restaurant = out.get("restaurant") or args.get("restaurant", "The restaurant")
+    requested = _clock(out.get("requested_time") or args.get("time"))
+    party = out.get("party_size") or args.get("party_size", "?")
+    day = out.get("weekday") or _spoken_date(out.get("date") or args.get("date"))
+    times = [str(t) for t in out.get("nearest_available_times") or []]
+    status, note = out.get("status"), str(out.get("note") or "")
+    disclosed = _first_hit(s.agent, NO_BOOKING_DISCLOSURE) is not None
+
+    if status == "available":
+        story = f"{restaurant} had {requested} open on {day} for {party}; the agent "
+        story += (
+            "made clear nothing was booked and pointed the caller to the restaurant or the app"
+            if disclosed
+            else "relayed it"
+        )
+    elif status == "alternatives":
+        offered = _join([_clock(t) for t in times])
+        story = f"{restaurant} was full at {requested}, so the agent offered {offered}"
+        chosen = _chosen_time(times, s.user)
+        if chosen:
+            story += f", and the caller took {_clock(chosen)}"
+        elif s.positive_close:
+            story += ", and the caller accepted one"
+        else:
+            story += ", but the caller didn't pick one"
+    elif "directly with the restaurant" in note:
+        story = (
+            f"{restaurant} doesn't take parties of {party} online, so the agent sent the caller "
+            "to the restaurant directly"
+        )
+    elif status == "closed":
+        story = f"{restaurant} is closed on {day}, so there was nothing to offer"
+    else:
+        story = f"{restaurant} had nothing open near {requested} on {day}"
+    if any(call.is_error for call, _, _ in s.checks):
+        story = f"After a failed first check, {story}"
+    return story
+
+
+def _search_story(s: _Signals) -> str:
+    query = str(_json_object(s.searches[-1].arguments).get("query", "")).strip()
+    looked_up = f'"{query[:80]}"' if query else "the question"
+    if all(c.is_error for c in s.searches):
+        return f"The agent tried to look up {looked_up}, but the search failed"
+    closing = "; the caller thanked it" if s.positive_close else ""
+    return f"The agent looked up {looked_up} on the web and relayed the answer{closing}"
+
+
+def _mood(s: _Signals, metrics: Metrics) -> str | None:
+    """One short clause about how the caller felt, only when it went wrong."""
+    if s.escalation:
+        return "The caller asked to speak to a human"
+    if not s.frustration:
+        return None
     if metrics.interruptions:
-        issues.append(f"{metrics.interruptions} interruption(s)")
-    if s.tool_errors:
-        issues.append(f"{s.tool_errors} failed tool call(s)")
-    if s.frustration:
-        issues.append("caller frustration")
-    if metrics.low_confidence_turns:
-        issues.append(f"{metrics.low_confidence_turns} low-confidence transcript turn(s)")
-    notable = (
-        f"Notable: {', '.join(issues)}." if issues else "No issues detected by keyword checks."
-    )
-    return f"{_intent_sentence(intent)} {outcome_reason} {notable}"
+        n = metrics.interruptions
+        return f"The caller grew frustrated after {n} interruption{'s' if n > 1 else ''}"
+    return "The caller grew frustrated along the way"
+
+
+def _summary(s: _Signals, metrics: Metrics) -> str:
+    """One or two plain sentences about what happened. It deliberately doesn't restate
+    ``caller_intent`` (the UI shows that as the title) or list every issue (flags do that)."""
+    if not s.user:
+        return "The caller never spoke, so there was nothing to resolve."
+    if s.checks:
+        story = _check_story(s)
+    elif s.searches:
+        story = _search_story(s)
+    elif s.positive_close:
+        story = "The agent answered without a lookup and the caller ended on a positive note"
+    else:
+        story = "No lookup was made during the call"
+    mood = _mood(s, metrics)
+    return f"{story}." + (f" {mood}." if mood else "")
 
 
 class HeuristicProvider:
@@ -510,7 +621,7 @@ class HeuristicProvider:
         intent = _intent(signals)
         status, reason = _outcome(signals)
         return AssessmentDraft(
-            summary=_summary(signals, intent, reason, metrics),
+            summary=_summary(signals, metrics),
             caller_intent=intent,
             outcome=OutcomeDraft(status=status, reason=reason),
             scores=_scores(signals, metrics, status),

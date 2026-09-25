@@ -94,3 +94,40 @@ async def test_silent_call_is_not_applicable(heuristic_analyzer: CallAnalyzer) -
     analysis = await heuristic_analyzer.analyze(record)
     assert analysis.outcome is not None and analysis.outcome.status == "not_applicable"
     assert analysis.sentiment == []
+
+
+EXPECTED_SUMMARIES = {
+    "01-available-state-bird": "State Bird Provisions had 7:30 open on Saturday for 2; the agent "
+    "made clear nothing was booked and pointed the caller to the restaurant or the app.",
+    "02-alternatives-nopa": "Nopa was full at 7:00, so the agent offered 6:45, 7:15 or 6:30, "
+    "and the caller took 7:15.",
+    "03-frustrated-zuni": "After a failed first check, Zuni Cafe had 7:30 open on Wednesday for "
+    "2; the agent made clear nothing was booked and pointed the caller to the restaurant or the "
+    "app. The caller grew frustrated after 2 interruptions.",
+    "04-web-search-ferry-building": 'The agent looked up "Ferry Plaza Farmers Market Saturday '
+    'hours" on the web and relayed the answer; the caller thanked it.',
+    "05-large-party-foreign-cinema": "Foreign Cinema doesn't take parties of 12 online, so the "
+    "agent sent the caller to the restaurant directly.",
+    "06-low-confidence-kokkari": "Kokkari had 7:30 open on Thursday for 3; the agent made clear "
+    "nothing was booked and pointed the caller to the restaurant or the app.",
+}
+
+
+@pytest.mark.parametrize("name", sorted(EXPECTED_SUMMARIES))
+async def test_summary_tells_what_happened_without_restating_intent(
+    name: str, heuristic_analyzer: CallAnalyzer
+) -> None:
+    analysis = await heuristic_analyzer.analyze(load_demo(f"{name}.json"))
+    assert analysis.summary == EXPECTED_SUMMARIES[name]
+    assert analysis.caller_intent is not None
+    assert analysis.caller_intent not in analysis.summary
+    assert "Notable" not in analysis.summary and "keyword" not in analysis.summary
+
+
+async def test_summary_when_every_check_fails(heuristic_analyzer: CallAnalyzer) -> None:
+    data = record_dict()
+    data["tool_calls"][0] |= {"is_error": True, "output": "The reservation system is down."}
+    analysis = await heuristic_analyzer.analyze(make_record(**data))
+    assert (
+        analysis.summary == "Every availability check for Nopa failed, so the caller got no answer."
+    )
