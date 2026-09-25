@@ -112,11 +112,11 @@ tools: [web_search, check_restaurant_availability]
 class ToolSpec:
     name: str
     description: str
-    factory: ToolFactory                 # (Settings) -> list[llm.Tool]
-    source_modules: tuple[str, ...]      # python modules implementing it
+    factory: ToolFactory  # (Settings) -> list[llm.Tool]
+    source_modules: tuple[str, ...]  # python modules implementing it
 
 
-TOOL_REGISTRY: dict[str, ToolSpec] = {...}   # "web_search", "check_restaurant_availability"
+TOOL_REGISTRY: dict[str, ToolSpec] = {...}  # "web_search", "check_restaurant_availability"
 
 
 def resolve_tools(names: Iterable[str], settings: Settings) -> list[AgentTool]:
@@ -202,8 +202,8 @@ agent/voice_agent/tools/restaurants/
 @function_tool(name="check_restaurant_availability")
 async def check_restaurant_availability(
     restaurant: str,
-    date: str,        # ISO YYYY-MM-DD, resolved by the backend from "this Friday"
-    time: str,        # 24h HH:MM
+    date: str,  # ISO YYYY-MM-DD, resolved by the backend from "this Friday"
+    time: str,  # 24h HH:MM
     party_size: int,
     city: str | None = None,
 ) -> str:
@@ -327,8 +327,7 @@ check each vendor's developer program. A new provider is one class:
 class MyVendorProvider:
     name = "myvendor"
 
-    def __init__(self, *, api_key: str, http_client: httpx.AsyncClient | None = None) -> None:
-        ...
+    def __init__(self, *, api_key: str, http_client: httpx.AsyncClient | None = None) -> None: ...
 
     async def search_availability(self, query: AvailabilityQuery) -> RestaurantAvailability:
         # 1. resolve query.restaurant (+ query.city) to the vendor's venue id
@@ -521,6 +520,7 @@ In `agent/voice_agent/tools/registry.py`, add the import (ruff's isort puts it b
 from .restaurant_notes import build_restaurant_notes_tool
 
 ...
+
 
 def _restaurant_notes(settings: Settings) -> list[AgentTool]:
     return [build_restaurant_notes_tool()]

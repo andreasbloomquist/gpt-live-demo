@@ -192,10 +192,10 @@ has its own `responses_options["service_tier"]`.
 from livekit.plugins.openai.realtime import GPTLiveModel
 
 model = GPTLiveModel.with_azure(
-    azure_deployment="gpt-live-1",                        # voice model deployment
+    azure_deployment="gpt-live-1",  # voice model deployment
     azure_endpoint="https://<resource>.openai.azure.com",  # or AZURE_OPENAI_ENDPOINT
-    api_key="<api-key>",                                   # or AZURE_OPENAI_API_KEY, or entra_token=
-    responses_options={"model": "<responses-deployment>"}, # required with responses delegation
+    api_key="<api-key>",  # or AZURE_OPENAI_API_KEY, or entra_token=
+    responses_options={"model": "<responses-deployment>"},  # required with responses delegation
 )
 ```
 
@@ -342,7 +342,9 @@ class Concierge(Agent):
 
     async def on_enter(self) -> None:
         live: GPTLiveSession = self.duplex_session()  # type: ignore[assignment]
-        live.append_thinking("Caller is signed in as a returning guest named Sam.")  # know, don't say
+        live.append_thinking(
+            "Caller is signed in as a returning guest named Sam."
+        )  # know, don't say
         self.session.generate_reply(instructions="Welcome Sam back.")
 ```
 
