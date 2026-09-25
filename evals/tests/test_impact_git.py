@@ -225,3 +225,19 @@ def test_overrides(repo: Path) -> None:
         ),
     )
     assert planned(filtered) == {("web_search", "brain")}
+
+
+def test_backend_options_in_model_py_run_both_tiers(repo: Path, edit) -> None:
+    # build_responses_options (model.py) is the brain tier's backend config, not voice-only code.
+    edit(
+        "agent/voice_agent/model.py",
+        lambda t: t.replace("parallel_tool_calls=True", "parallel_tool_calls=False"),
+    )
+    plan = plan_for(repo)
+    assert planned(plan) == every("brain") | every("voice")
+    assert plan.changed_components == ["code.backend_runtime"]
+
+
+def test_voice_only_runtime_change_runs_voice_only(repo: Path, edit) -> None:
+    edit("agent/voice_agent/agent.py", lambda t: t + "\n\n_EVALS_MARKER = 1\n")
+    assert planned(plan_for(repo)) == every("voice")

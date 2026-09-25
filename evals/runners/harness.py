@@ -56,7 +56,7 @@ class HarnessOptions:
     trials_override: int | None = None
     early_stop: bool = True
     """Stop a case once its threshold is mathematically unreachable (saves money on clear
-    failures). Never stops early on success: the remaining trials feed pass^k."""
+    failures). Never stops early on success: the remaining trials feed the pass rate and pass^k."""
     judge: bool = True
 
 

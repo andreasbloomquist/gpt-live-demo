@@ -130,6 +130,8 @@ def test_affects_routing_table() -> None:
     assert not affects("tool.impl:web_search", s, "brain")  # not used by this suite
     assert affects("tool.impl:check", s, "brain")
     assert not affects("tool.impl:check", s, "voice")
+    assert affects("code.backend_runtime", s, "brain")
+    assert affects("code.backend_runtime", s, "voice")
     assert affects("code.voice_runtime", s, "voice") and not affects(
         "code.voice_runtime", s, "brain"
     )
@@ -223,3 +225,29 @@ def test_github_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     md = summary.read_text()
     assert "| `restaurants` | brain | ▶️ run |" in md
     assert json.loads(output.to_json(plan))["summary"]["voice"] == ["restaurants"]
+
+
+def test_describe_change_wording() -> None:
+    from evals.impact.planner import describe_change
+
+    base, head = _snap(), _snap(**{"code.other__agent/voice_agent/x.py": "a"})
+    assert describe_change("code.other:agent/voice_agent/x.py", base, head) == (
+        "agent module `agent/voice_agent/x.py` added"
+    )
+    assert describe_change("code.other:agent/voice_agent/x.py", head, base).endswith("removed")
+    changed = _snap(**{"code.other__agent/voice_agent/x.py": "b"})
+    assert describe_change("code.other:agent/voice_agent/x.py", head, changed).endswith(
+        "changed (normalized AST)"
+    )
+
+
+def test_estimate_uses_configured_backend_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    from evals import cli
+    from evals.schema import load_suites
+
+    monkeypatch.setenv("GPT_LIVE_BACKEND_MODEL", "gpt-4.1-mini")
+    assert cli.configured_backend_model() == "gpt-4.1-mini"
+    suite = load_suites(names=["web_search"])["web_search"]
+    _, cheap = cli._estimate("brain", suite, None, "gpt-4.1-mini")
+    _, default = cli._estimate("brain", suite, None, cli.DEFAULT_BACKEND_MODEL)
+    assert cheap < default

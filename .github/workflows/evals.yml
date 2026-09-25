@@ -3,7 +3,10 @@
 #   plan ──► brain (matrix, cheap) ──► voice (matrix, expensive; only if brain passed) ──► report
 #
 # Gates, cheapest first:
-#   1. `paths` filter: PRs that touch nothing agent-related never start this workflow.
+#   1. `plan` fast path: if no behaviour-relevant file changed (docs, frontend, CI), it skips
+#      without rendering anything (seconds). There is deliberately no `on.pull_request.paths`
+#      filter: GitHub applies it to `labeled` events too, so adding `evals:full` to a
+#      docs-only PR would never start the workflow.
 #   2. `plan`: `python -m evals.impact` fingerprints base vs head (rendered prompts, tool
 #      schemas, normalized ASTs, settings defaults, lockfile) and emits the exact suite x tier
 #      matrix. Whitespace/comment/docs-only edits plan nothing.
@@ -18,12 +21,6 @@ name: Evals
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
-    paths:
-      - "agent/**"
-      - "prompts/**"
-      - "evals/**"
-      - "uv.lock"
-      - ".github/workflows/evals.yml"
   workflow_dispatch:
     inputs:
       suites:

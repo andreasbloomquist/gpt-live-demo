@@ -122,24 +122,23 @@ class TrialResult:
         return "; ".join(failed)
 
 
-def pass_at_k(n: int, c: int, k: int) -> float:
-    """Unbiased estimate of P(at least one of k samples passes) from n trials with c passes."""
-    if k > n:
-        return float("nan")
-    if n - c < k:
-        return 1.0
-    return 1.0 - math.comb(n - c, k) / math.comb(n, k)
+PASS_HAT_K = 2
+"""The fixed k reported as ``pass^k``. Fixed (not the trial count) so the number is comparable
+across cases and runs, and informative: with k equal to the trial count it could only ever be
+0 or 1. A case with fewer than k trials (trials: 1, or stopped early after an unrecoverable
+failure, which means it already failed) reports ``None`` rather than a made-up number."""
 
 
-def pass_hat_k(n: int, c: int, k: int) -> float:
-    """Unbiased estimate of P(all k samples pass) — "pass^k".
+def pass_hat_k(n: int, c: int, k: int = PASS_HAT_K) -> float | None:
+    """Unbiased estimate of P(k independent attempts ALL pass) from n trials with c passes:
+    ``C(c, k) / C(n, k)``. ``None`` when fewer than k trials ran.
 
-    For a voice agent this is the number that matters: every caller gets one sample, so an agent
-    that is right 2 times out of 3 fails one caller in three. pass@k (≥1 success) flatters
-    nondeterministic systems and is reported only for contrast.
+    For a voice agent this is the reliability number that matters: every caller gets one
+    sample, so "right 2 times out of 3" means "wrong for one caller in three", and pass^2 of
+    that case is 1/3, not 2/3.
     """
-    if k > n:
-        return float("nan")
+    if n < k:
+        return None
     return math.comb(c, k) / math.comb(n, k)
 
 
@@ -166,12 +165,13 @@ class CaseResult:
     def passed(self) -> bool:
         return self.n > 0 and self.pass_rate >= self.threshold
 
-    def stats(self) -> dict[str, float]:
-        n, c = self.n, self.passes
+    def stats(self) -> dict[str, float | int | None]:
+        """``pass_rate`` (= unbiased pass@1) and ``pass_hat_k`` for the fixed ``PASS_HAT_K``."""
+        hat = pass_hat_k(self.n, self.passes)
         return {
             "pass_rate": round(self.pass_rate, 3),
-            f"pass^{n}": round(pass_hat_k(n, c, n), 3) if n else 0.0,
-            "pass@1": round(pass_at_k(n, c, 1), 3) if n else 0.0,
+            "pass_hat_k": None if hat is None else round(hat, 3),
+            "k": PASS_HAT_K,
         }
 
 

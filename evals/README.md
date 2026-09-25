@@ -60,7 +60,7 @@ cases:
       no_tool_calls: false
       forbidden_tools: [web_search]
       max_words: 70                # final spoken reply
-      must_not_match: ["https?://"]   # anywhere the agent spoke after the first user turn
+      must_not_match: ["https?://"]   # any assistant speech after the first user turn (not the greeting)
       judge: >-                    # LLM rubric, graded only if the deterministic checks pass
         Tells the caller whether 7pm is available ... never implies a booking was made.
 ```
@@ -77,10 +77,12 @@ numeric strings. The operators are `$regex`, `$in`, `$contains`, `$exists` and
    the transcript and the rubric, and returns structured `{reasoning, verdict}` output. Both
    tiers use the same judge, so their pass rates are comparable.
 3. **Repeated trials**: voice models are nondeterministic, so each case runs `trials` times
-   and passes if `pass_rate ≥ pass_threshold`. Reports show `pass^k` (the chance that all `k`
-   callers get it right, which is the reliability number for a production agent) next to
-   `pass@1`. Once a case can no longer reach its threshold, its remaining trials are
-   skipped. Passing cases always run every trial so that `pass^k` stays meaningful.
+   and passes if `pass_rate ≥ pass_threshold`. Reports also show `pass^2`, the unbiased
+   estimate `C(c,2)/C(n,2)` of the chance that two independent callers *both* get it right.
+   k is fixed at 2 so the number is comparable across cases and still informative with 3
+   trials (with k = n it could only be 0 or 1). It is empty when fewer than 2 trials ran.
+   Once a case can no longer reach its threshold, its remaining trials are skipped (it has
+   failed either way). Passing cases always run every trial.
 4. **Hard budget**: `--max-cost-usd` reserves a pessimistic per-trial estimate before each
    trial, so concurrent trials together cannot exceed the cap. Spend comes from reported
    token usage and billed session seconds. Prices in `runners/common.py` are estimates; you
@@ -134,10 +136,11 @@ probed in its own subprocess (`probe.py`) with that tree's `voice_agent` on `PYT
 | `profile.tools:<profile>` / `tool.schema:<tool>` | tool JSON as the model sees it | brain + voice of suites whose profile exposes the tool |
 | `tool.impl:<tool>` | normalized AST of `ToolSpec.source_modules` | **brain** of suites that declare the tool |
 | `code.core` | composer, registry | everything |
-| `code.voice_runtime` | `agent.py`, `model.py`, `main.py` | voice |
+| `code.backend_runtime` | `model.py` (it holds `build_responses_options`, the brain tier's backend config) | brain + voice |
+| `code.voice_runtime` | `agent.py`, `main.py` | voice |
 | `config.voice:*` / `config.shared:*` | literal defaults in `config.py` (credentials, URLs and logging ignored) | voice / both |
 | `suite:<name>` | normalized suite YAML | that suite |
-| `runner:<tier>` | eval runner code | that tier |
+| `runner:brain` / `runner:voice` / `runner:shared` | eval runner code | that tier / both |
 | `deps:<pkg>` | `uv.lock` versions of `livekit*` and `openai` | everything |
 
 Normalization decides what counts as "no change":
@@ -156,6 +159,9 @@ Degradation and overrides:
 - The label `evals:skip` runs nothing.
 - `--suites` and `--tiers` filter the plan.
 - Diffs that touch only docs, frontend or CI files take a fast path that skips rendering.
+  This fast path, not a workflow `paths:` filter, is the first gate in CI, because GitHub
+  applies `paths:` to `labeled` events too. That would stop `evals:full` from working on a
+  docs-only PR.
 
 `--format github` writes `brain_matrix`, `voice_matrix`, `run_brain`, `run_voice`, `any` and
 per-tier fingerprints to `$GITHUB_OUTPUT`, and a Markdown table to `$GITHUB_STEP_SUMMARY`.

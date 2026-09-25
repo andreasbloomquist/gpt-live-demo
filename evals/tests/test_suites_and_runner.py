@@ -23,7 +23,6 @@ from evals.runners.common import (
     CaseResult,
     SuiteResult,
     TrialResult,
-    pass_at_k,
     pass_hat_k,
 )
 from evals.schema import Expect, Suite, load_suites, suite_json_schema
@@ -143,12 +142,18 @@ def test_argument_mismatch_is_reported() -> None:
     assert not result.passed and "time='07:00'" in result.detail
 
 
-def test_pass_k_estimators() -> None:
-    assert pass_hat_k(3, 3, 3) == 1.0
-    assert pass_hat_k(3, 2, 3) == 0.0
-    assert pass_hat_k(4, 3, 2) == pytest.approx(0.5)
-    assert pass_at_k(3, 1, 1) == pytest.approx(1 / 3)
-    assert pass_at_k(3, 0, 2) == 0.0
+def test_pass_hat_k_estimator() -> None:
+    # fixed k=2: informative for 3 trials (not just 0/1), unbiased C(c,k)/C(n,k)
+    assert pass_hat_k(3, 3) == 1.0
+    assert pass_hat_k(3, 2) == pytest.approx(1 / 3)
+    assert pass_hat_k(3, 1) == 0.0
+    assert pass_hat_k(4, 3) == pytest.approx(0.5)
+    assert pass_hat_k(1, 1) is None  # fewer than k trials: no estimate
+    case = CaseResult(
+        "c", [TrialResult(1, True), TrialResult(2, True), TrialResult(3, False)], 0.66
+    )
+    assert case.passed
+    assert case.stats() == {"pass_rate": 0.667, "pass_hat_k": 0.333, "k": 2}
 
 
 def test_budget_reservations_are_hard() -> None:

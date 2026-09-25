@@ -138,7 +138,7 @@
           "title": "Max Words"
         },
         "must_not_match": {
-          "description": "Regexes (case-insensitive) the final reply must not match, e.g. URLs.",
+          "description": "Regexes (case-insensitive, multiline) that no assistant speech after the first user turn may match, e.g. URLs. The greeting is excluded.",
           "items": {
             "type": "string"
           },

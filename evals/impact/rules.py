@@ -15,12 +15,15 @@ tool.impl:<tool>       normalized AST of tool code    brain tier of suites that 
                                                       <tool> in ``tools``
 code.core              composer / registry AST        everything
 code.other:<path>      any other agent module AST     everything (unknown ⇒ conservative)
-code.voice_runtime     agent.py / model.py / main.py  voice tier of every suite
+code.backend_runtime   model.py AST                   brain + voice of every suite
+                                                      (``build_responses_options`` there is
+                                                      the brain tier's backend config)
+code.voice_runtime     agent.py / main.py AST         voice tier of every suite
 config.voice:<field>   voice-only settings default    voice tier of every suite
 config.shared:<field>  other behavioural defaults     brain + voice of every suite
 config.logic           rest of config.py AST          brain + voice of every suite
 suite:<name>           normalized suite YAML          that suite's tiers
-runner.<tier|shared>   eval runner code AST           that tier (shared: both) of every suite
+runner:<tier|shared>   eval runner code AST           that tier (shared: both) of every suite
 deps:<package>         uv.lock version                brain + voice of every suite
 =====================  =============================  ======================================
 
@@ -46,10 +49,12 @@ CORE_CODE = (
     f"{AGENT_PKG}/tools/__init__.py",
     f"{AGENT_PKG}/tools/registry.py",
 )
-# Code only on the voice path (session wiring, GPT-Live model construction, entrypoint).
+# Model construction: GPT-Live voice settings *and* ``build_responses_options``, which the brain
+# tier reuses verbatim as its backend request config. So it can change both tiers.
+BACKEND_RUNTIME_CODE = (f"{AGENT_PKG}/model.py",)
+# Code only on the voice path (Agent subclass / session wiring, entrypoint).
 VOICE_RUNTIME_CODE = (
     f"{AGENT_PKG}/agent.py",
-    f"{AGENT_PKG}/model.py",
     f"{AGENT_PKG}/main.py",
 )
 CONFIG_FILE = f"{AGENT_PKG}/config.py"
@@ -72,7 +77,7 @@ RUNNER_CODE: dict[str, tuple[str, ...]] = {
 # the OpenTable provider, which evals replace with the deterministic mock).
 CONFIG_IGNORED = re.compile(r"(api_key|secret|token|_url$|^log_level$|^livekit_|^opentable_)")
 # Settings consumed only by the GPT-Live voice model.
-CONFIG_VOICE_ONLY = re.compile(r"^gpt_live_(model|voice|service_tier|max_session_duration)$")
+CONFIG_VOICE_ONLY = re.compile(r"^gpt_live_(model|voice)$")
 
 # uv.lock packages whose version bump can change model I/O. Everything else (e.g. httpx) is
 # covered by unit tests.
@@ -135,5 +140,6 @@ def affects(key: str, suite: SuiteTarget, tier: Tier) -> bool:
         return arg == suite.name
     if kind == "runner":
         return arg in (tier, "shared")
-    # code.core, code.other, config.shared, config.logic, deps, and anything new: conservative.
+    # code.core, code.backend_runtime, code.other, config.shared, config.logic, deps, and
+    # anything new: both tiers (conservative).
     return True

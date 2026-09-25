@@ -175,12 +175,15 @@ def _add_tool_components(snap: Snapshot, tree: Path, probe: dict[str, Any]) -> s
 
 def _add_agent_code_components(snap: Snapshot, tree: Path, claimed: set[str]) -> None:
     core: list[str] = []
+    backend_runtime: list[str] = []
     voice_runtime: list[str] = []
     for path in _python_files(tree, rules.AGENT_PKG):
         if path.startswith(rules.CORE_CODE):
             core.append(path)
         elif path in claimed:
             continue
+        elif path in rules.BACKEND_RUNTIME_CODE:
+            backend_runtime.append(path)
         elif path in rules.VOICE_RUNTIME_CODE:
             voice_runtime.append(path)
         elif path == rules.CONFIG_FILE:
@@ -190,6 +193,7 @@ def _add_agent_code_components(snap: Snapshot, tree: Path, claimed: set[str]) ->
                 digest=norm.digest(norm.normalized_python(_read(tree / path)))
             )
     snap.components["code.core"] = Component(digest=_code_digest(tree, core))
+    snap.components["code.backend_runtime"] = Component(digest=_code_digest(tree, backend_runtime))
     snap.components["code.voice_runtime"] = Component(digest=_code_digest(tree, voice_runtime))
 
 

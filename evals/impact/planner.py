@@ -66,22 +66,18 @@ def describe_change(key: str, base: Snapshot, head: Snapshot) -> str:
     """One human-readable line for a changed component (goes into the PR comment)."""
     b, h = base.components.get(key), head.components.get(key)
     kind, _, arg = key.partition(":")
-    if b is None and h is not None and kind not in ("profile.error",):
-        prefix = "added: "
-    elif h is None and b is not None and kind not in ("profile.error",):
-        prefix = "removed: "
-    else:
-        prefix = ""
+    verb = "added" if b is None else "removed" if h is None else "changed"
+    ast_verb = verb if verb != "changed" else "changed (normalized AST)"
     if kind in ("prompt.voice", "prompt.backend"):
         target = kind.split(".")[1]
         stats = ""
         if b is not None and h is not None and b.text is not None and h.text is not None:
             plus, minus = norm.line_diff_stats(b.text, h.text)
             stats = f" (+{plus}/-{minus} normalized lines)"
-        return f"{prefix}{target} prompt of profile `{arg}` changed{stats}"
+        return f"{target} prompt of profile `{arg}` {verb}{stats}"
     if kind == "profile.tools":
         return (
-            f"{prefix}tool list of profile `{arg}` changed: "
+            f"tool list of profile `{arg}` {verb}: "
             f"[{b.detail if b else ''}] → [{h.detail if h else ''}]"
         )
     if kind == "profile.error":
@@ -89,26 +85,28 @@ def describe_change(key: str, base: Snapshot, head: Snapshot) -> str:
             h.detail if h else b.detail if b else ""
         )
     if kind == "tool.schema":
-        return f"{prefix}model-visible schema of tool `{arg}` changed"
+        return f"model-visible schema of tool `{arg}` {verb}"
     if kind == "tool.impl":
-        return f"{prefix}implementation of tool `{arg}` changed (normalized AST)"
+        return f"implementation of tool `{arg}` {ast_verb}"
     if kind == "code.core":
-        return "prompt composer / tool registry code changed (normalized AST)"
+        return f"prompt composer / tool registry code {ast_verb}"
     if kind == "code.other":
-        return f"{prefix}agent module `{arg}` changed (normalized AST)"
+        return f"agent module `{arg}` {ast_verb}"
+    if kind == "code.backend_runtime":
+        return f"model construction code (model.py, incl. backend options) {ast_verb}"
     if kind == "code.voice_runtime":
-        return "voice runtime code (agent/model/main) changed (normalized AST)"
+        return f"voice runtime code (agent.py/main.py) {ast_verb}"
     if kind.startswith("config."):
         if kind == "config.logic":
-            return "settings module logic changed (normalized AST)"
+            return f"settings module logic {ast_verb}"
         return f"setting `{arg}` default: {b.detail if b else '∅'} → {h.detail if h else '∅'}"
     if kind == "suite":
-        return f"{prefix}suite definition `{arg}.yaml` changed"
+        return f"suite definition `{arg}.yaml` {verb}"
     if kind == "runner":
-        return f"{arg} eval runner code changed (normalized AST)"
+        return f"{arg} eval runner code {ast_verb}"
     if kind == "deps":
         return f"dependency `{arg}`: {b.detail if b else '∅'} → {h.detail if h else '∅'}"
-    return f"{prefix}{key} changed"
+    return f"{key} {verb}"
 
 
 def changed_keys(base: Snapshot, head: Snapshot) -> list[str]:

@@ -65,7 +65,24 @@ def cross_check(suites: dict[str, Suite]) -> list[str]:
     return errors
 
 
-def _estimate(tier: Tier, suite: Suite, trials: int | None) -> tuple[int, float]:
+DEFAULT_BACKEND_MODEL = "gpt-5.6-luna"
+
+
+def configured_backend_model() -> str:
+    """The backend model the agent is configured with (``GPT_LIVE_BACKEND_MODEL`` / Settings
+    default), so dry-run estimates price the model that would actually run. Falls back to the
+    GPT-Live default if the agent package cannot be imported."""
+    try:
+        from evals.runners import agent_bridge
+
+        return str(agent_bridge.load_settings().gpt_live_backend_model)
+    except Exception:
+        return DEFAULT_BACKEND_MODEL
+
+
+def _estimate(
+    tier: Tier, suite: Suite, trials: int | None, backend_model: str = DEFAULT_BACKEND_MODEL
+) -> tuple[int, float]:
     """(trial count, rough USD) without constructing runners or touching the network."""
     from evals.runners.common import VOICE_USD_PER_MINUTE, WEB_SEARCH_CALL_USD, text_cost
 
@@ -74,7 +91,7 @@ def _estimate(tier: Tier, suite: Suite, trials: int | None) -> tuple[int, float]
         n = trials or suite.trials_for(case)
         turns = len(case.user_turns)
         if tier == "brain":
-            per = text_cost("gpt-5.6-luna", 8_000 * turns, 800 * turns)
+            per = text_cost(backend_model, 8_000 * turns, 800 * turns)
             per += WEB_SEARCH_CALL_USD * turns + 0.01
         else:
             per = (20 + 25 * turns) / 60 * VOICE_USD_PER_MINUTE + 0.02 * turns + 0.01
@@ -85,14 +102,17 @@ def _estimate(tier: Tier, suite: Suite, trials: int | None) -> tuple[int, float]
 
 def dry_run(tier: Tier, suites: dict[str, Suite], args: argparse.Namespace) -> int:
     errors = [] if args.no_agent_check else cross_check(suites)
+    backend_model = configured_backend_model()
     print(f"DRY RUN — tier={tier} (no network calls, no API key needed)")
+    if tier == "brain":
+        print(f"  backend model: {backend_model}")
     grand = 0.0
     for suite in suites.values():
         cases = suite.cases_for(tier)
         if tier not in suite.tiers or not cases:
             print(f"  {suite.name}: skipped (no {tier}-tier cases)")
             continue
-        n, usd = _estimate(tier, suite, args.trials)
+        n, usd = _estimate(tier, suite, args.trials, backend_model)
         grand += usd
         print(
             f"  {suite.name}: profile={suite.profile} cases={len(cases)} trials={n} "

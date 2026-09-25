@@ -59,7 +59,10 @@ class Expect(_Strict):
     )
     must_not_match: list[str] = Field(
         default_factory=list,
-        description="Regexes (case-insensitive) the final reply must not match, e.g. URLs.",
+        description=(
+            "Regexes (case-insensitive, multiline) that no assistant speech after the first "
+            "user turn may match, e.g. URLs. The greeting is excluded."
+        ),
     )
     judge: str | None = Field(
         default=None, description="Rubric for the LLM judge, phrased as pass criteria."

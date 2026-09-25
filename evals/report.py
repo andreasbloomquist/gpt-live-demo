@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
-from evals.runners.common import SuiteResult
+from evals.runners.common import PASS_HAT_K, SuiteResult
 
 COMMENT_MARKER = "<!-- gpt-live-evals-report -->"
 
@@ -95,7 +95,7 @@ def results_markdown(results: list[dict[str, Any]]) -> str:
     if not results:
         return "_No eval results._\n"
     lines = [
-        "| tier | suite | result | cases | mean pass rate | min pass^k | p50 latency | "
+        f"| tier | suite | result | cases | mean pass rate | min pass^{PASS_HAT_K} | p50 latency | "
         "p50 first response | cost |",
         "|---|---|---|---|---|---|---|---|---|",
     ]
@@ -104,7 +104,7 @@ def results_markdown(results: list[dict[str, Any]]) -> str:
         cases = data["cases"]
         trials = [t for c in cases for t in c["trials"]]
         rates = [c["pass_rate"] for c in cases]
-        hats = [v for c in cases for k, v in c.items() if k.startswith("pass^")]
+        hats = [c["pass_hat_k"] for c in cases if c.get("pass_hat_k") is not None]
         icon = {"completed": "✅" if data["passed"] else "❌", "skipped": "⏭️"}.get(
             data["status"], "⚠️"
         )
@@ -113,7 +113,7 @@ def results_markdown(results: list[dict[str, Any]]) -> str:
             f"| {data['tier']} | `{data['suite']}` | {icon} {status} | "
             f"{sum(c['passed'] for c in cases)}/{len(cases)} | "
             f"{(sum(rates) / len(rates)) if rates else 0:.0%} | "
-            f"{min(hats) if hats else 0:.2f} | "
+            f"{f'{min(hats):.2f}' if hats else '—'} | "
             f"{_median([t['latency_s'] for t in trials])} | "
             f"{_median([t['first_response_latency_s'] for t in trials if t.get('first_response_latency_s') is not None])} | "  # noqa: E501
             f"${data['cost_usd']:.3f} |"
