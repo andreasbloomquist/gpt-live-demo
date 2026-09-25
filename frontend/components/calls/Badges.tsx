@@ -35,10 +35,11 @@ export function AnalysisStatusPill({ status }: { status: AnalysisStatus | null }
   }
 }
 
-export function HeuristicBadge() {
+/** `compact` is the short form for list rows; the detail page spells it out. */
+export function HeuristicBadge({ compact = false }: { compact?: boolean }) {
   return (
     <span className="pill" title="Scored by the analyzer's deterministic offline rules, not an LLM">
-      <OfflineIcon /> Offline heuristic analysis
+      <OfflineIcon /> {compact ? "Heuristic" : "Offline heuristic analysis"}
     </span>
   );
 }

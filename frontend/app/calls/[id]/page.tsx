@@ -40,6 +40,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
       <main className="page">
         <BackLink />
         <AnalyzerUnavailable
+          headingLevel={1}
           title="Can’t load this call right now"
           message={analyzerErrorMessage(e)}
           retryHref={`/calls/${encodeURIComponent(id)}`}
@@ -55,7 +56,6 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
   return (
     <main className="page">
       <BackLink />
-      <AnalysisPoller active={inFlight} />
 
       <header className={styles.hero}>
         <div className={styles.heroText}>
@@ -183,8 +183,8 @@ function AnalysisBar({
           <p>This call hasn&rsquo;t been analyzed yet.</p>
         ) : inFlight ? (
           <p role="status">
-            {analysis.status === "pending" ? "Queued for analysis." : "Analyzing this call…"} This page
-            updates automatically.
+            {analysis.status === "pending" ? "Queued for analysis." : "Analyzing this call…"}{" "}
+            <AnalysisPoller active showStatus />
           </p>
         ) : analysis.status === "failed" ? (
           <p role="alert">

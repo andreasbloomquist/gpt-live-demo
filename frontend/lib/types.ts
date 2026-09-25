@@ -94,11 +94,17 @@ export type Metrics = {
   low_confidence_turns: number;
 };
 
+export type AnalyzerInfo = {
+  provider: "openai" | "heuristic" | string;
+  model: string | null;
+  rubric_version: string;
+};
+
 export type Analysis = {
   call_id: string;
   status: AnalysisStatus;
   error: string | null;
-  analyzer: { provider: "openai" | "heuristic" | string; model: string | null; rubric_version: string };
+  analyzer: AnalyzerInfo;
   created_at: string;
   // The fields below are only meaningful once status === "done".
   summary: string | null;
@@ -123,6 +129,8 @@ export type CallSummary = {
   /** Analysis status; null when the call has never been analyzed. */
   status: AnalysisStatus | null;
   turns: number;
+  /** Who produced the analysis; null until one has been attempted. */
+  analyzer: AnalyzerInfo | null;
 };
 
 export type CallPage = { items: CallSummary[]; next_cursor: string | null };

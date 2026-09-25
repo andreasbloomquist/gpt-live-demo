@@ -4,7 +4,7 @@ import { ChevronRightIcon } from "@/components/icons";
 import { LocalTime } from "@/components/LocalTime";
 import { formatDuration } from "@/lib/format";
 import type { CallSummary } from "@/lib/types";
-import { AnalysisStatusPill, OutcomePill } from "./Badges";
+import { AnalysisStatusPill, HeuristicBadge, OutcomePill } from "./Badges";
 import { ScoreRing } from "./ScoreRing";
 import styles from "./calls.module.css";
 
@@ -31,6 +31,7 @@ export function CallCard({ call }: { call: CallSummary }) {
         <div className={styles.rowSide}>
           <OutcomePill status={call.outcome?.status} />
           <AnalysisStatusPill status={call.status} />
+          {call.status === "done" && call.analyzer?.provider === "heuristic" && <HeuristicBadge compact />}
           <ChevronRightIcon className={styles.chevron} />
         </div>
       </Link>

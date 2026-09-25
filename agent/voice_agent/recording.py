@@ -51,6 +51,8 @@ MAX_TOOL_ARGUMENT_CHARS = 20_000
 MAX_TOOL_OUTPUT_CHARS = 50_000
 MAX_USAGE_ENTRIES = 200
 MAX_SHORT_TEXT = 256
+MAX_ID_CHARS = 128  # turn ids, tool call ids, and tool names
+MAX_CALL_DURATION_S = 24 * 3600
 MAX_BODY_BYTES = 2 * 1024 * 1024
 
 TRUNCATION_MARKER = " […truncated]"
@@ -110,10 +112,11 @@ def build_call_record(
             turn = _turn(item)
             if turn is not None:
                 turns_by_id[turn["id"]] = turn
+        # Keyed by the id as it will be sent (capped), so capping can't create duplicates.
         elif isinstance(item, llm.FunctionCall):
-            calls.setdefault(item.call_id, _tool_call(item))
+            calls.setdefault(item.call_id[:MAX_ID_CHARS], _tool_call(item))
         elif isinstance(item, llm.FunctionCallOutput):
-            outputs.setdefault(item.call_id, item)
+            outputs.setdefault(item.call_id[:MAX_ID_CHARS], item)
 
     for tool_call_id, call in calls.items():
         if (output := outputs.get(tool_call_id)) is not None:
@@ -127,6 +130,9 @@ def build_call_record(
             extra={"call_id": call_id, "turns": len(turns), "kept": MAX_TURNS},
         )
     ended_at = max(ended_at, started_at)  # clock steps must not produce an invalid record
+    # A worker that outlives the analyzer's duration cap (e.g. a stuck room) still gets its
+    # record accepted; the timestamps keep the true span.
+    duration_s = min(round((ended_at - started_at).total_seconds(), 3), MAX_CALL_DURATION_S)
     return {
         "schema_version": SCHEMA_VERSION,
         "call_id": call_id,
@@ -134,7 +140,7 @@ def build_call_record(
         "agent_name": agent_name[:MAX_SHORT_TEXT],
         "started_at": _iso(started_at),
         "ended_at": _iso(ended_at),
-        "duration_s": round((ended_at - started_at).total_seconds(), 3),
+        "duration_s": duration_s,
         "end_reason": end_reason[:MAX_SHORT_TEXT] if end_reason else None,
         "prompt": {
             "profile": bundle.profile,
@@ -167,7 +173,7 @@ def _turn(message: llm.ChatMessage) -> dict[str, Any] | None:
     stopped = metrics.get("stopped_speaking_at")
     confidence = message.transcript_confidence
     return {
-        "id": message.id,
+        "id": message.id[:MAX_ID_CHARS],
         "role": message.role,
         "text": _truncate(text, MAX_TURN_CHARS),
         "started_at": _iso_from_epoch(started),
@@ -182,8 +188,8 @@ def _turn(message: llm.ChatMessage) -> dict[str, Any] | None:
 
 def _tool_call(call: llm.FunctionCall) -> dict[str, Any]:
     return {
-        "id": call.call_id,
-        "name": call.name,
+        "id": call.call_id[:MAX_ID_CHARS],
+        "name": call.name[:MAX_ID_CHARS],
         "arguments": _truncate(call.arguments, MAX_TOOL_ARGUMENT_CHARS),
         "output": None,  # filled in from the matching FunctionCallOutput, if any
         "is_error": False,
@@ -224,10 +230,10 @@ class ExportResult:
 class CallRecordExporter:
     """Deliver call records to the Call Analyzer, falling back to a JSON file on disk.
 
-    ``export`` POSTs to ``{analyzer_url}/v1/calls`` with a bearer token. Connection errors and
-    5xx get one retry; everything is bounded by ``total_timeout_s`` so the job's shutdown isn't
-    held up by a slow analyzer. 4xx responses aren't retried (the record won't change) but are
-    still saved to disk so nothing is lost. ``export`` never raises.
+    ``export`` POSTs to ``{analyzer_url}/v1/calls`` with a bearer token. Connection errors,
+    5xx, and 429 get one retry; everything is bounded by ``total_timeout_s`` so the job's
+    shutdown isn't held up by a slow analyzer. Other 4xx responses aren't retried (the record
+    won't change) but are still saved to disk so nothing is lost. ``export`` never raises.
     """
 
     def __init__(
@@ -289,7 +295,11 @@ class CallRecordExporter:
         if not CALL_ID_PATTERN.fullmatch(call_id):
             # Never build a file path from an unvalidated id.
             return ExportResult("failed", detail="invalid call_id")
-        body = json.dumps(record, ensure_ascii=False, separators=(",", ":")).encode()
+        # errors="replace": a lone surrogate in a transcript (possible in decoded provider
+        # JSON) becomes "?" instead of raising and losing the whole record.
+        body = json.dumps(record, ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8", errors="replace"
+        )
 
         detail = "CALL_ANALYZER_URL not set"
         if self._url is not None and self._token is not None:
@@ -309,17 +319,24 @@ class CallRecordExporter:
         return ExportResult("file", path=path, detail=detail)
 
     async def _post(self, url: str, token: str, body: bytes) -> str | None:
-        """POST with one retry; ``None`` on success, else a short reason."""
+        """POST with one retry; ``None`` on success, else a short reason.
+
+        Retried: transport errors, 5xx, and 429 (after its ``Retry-After``, if that still fits
+        in the time budget). Other 4xx are final: the same record would be rejected again.
+        """
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._total_timeout_s
         async with httpx.AsyncClient(
             transport=self._transport, timeout=self._attempt_timeout_s
         ) as client:
 
             async def attempts() -> str | None:
                 reason = "no attempt made"
+                delay = self._retry_delay_s
                 for attempt in range(2):
                     if attempt:
-                        await asyncio.sleep(self._retry_delay_s)
+                        await asyncio.sleep(delay)
                     try:
                         response = await client.post(url, content=body, headers=headers)
                     # Transport errors (connect/read/timeouts) and a response that can't be
@@ -327,18 +344,35 @@ class CallRecordExporter:
                     # and then fall back to disk instead of losing it to export's catch-all.
                     except httpx.RequestError as exc:
                         reason = type(exc).__name__
+                        delay = self._retry_delay_s
                         continue
                     if response.is_success:
                         return None
                     reason = f"analyzer returned HTTP {response.status_code}"
-                    if response.status_code < 500:
-                        break  # 4xx: the same record would be rejected again
+                    if response.status_code == 429:
+                        retry_after = _retry_after_s(response)
+                        delay = self._retry_delay_s if retry_after is None else retry_after
+                        if delay >= deadline - loop.time():
+                            break  # waiting would only run out the budget: save to disk now
+                    elif response.status_code < 500:
+                        break
+                    else:
+                        delay = self._retry_delay_s
                 return reason
 
             try:
                 return await asyncio.wait_for(attempts(), timeout=self._total_timeout_s)
             except asyncio.TimeoutError:
                 return f"analyzer did not answer within {self._total_timeout_s:g}s"
+
+
+def _retry_after_s(response: httpx.Response) -> float | None:
+    """``Retry-After`` in seconds; ``None`` if absent or an HTTP date (not worth parsing here)."""
+    try:
+        value = float(response.headers.get("Retry-After", ""))
+    except ValueError:
+        return None
+    return value if 0 <= value < float("inf") else None
 
 
 def _write_atomic(path: Path, data: bytes) -> None:

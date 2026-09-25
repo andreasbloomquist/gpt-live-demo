@@ -10,6 +10,7 @@ import "server-only";
 import { connection } from "next/server";
 import type {
   Analysis,
+  AnalyzerInfo,
   CallDetail,
   CallPage,
   CallRecord,
@@ -127,6 +128,26 @@ function invalid(what: string): never {
   throw new AnalyzerError("bad_response");
 }
 
+function parseAnalyzerInfo(v: unknown): AnalyzerInfo | null {
+  if (!isObj(v) || !str(v.provider)) return null;
+  return {
+    provider: v.provider as string,
+    model: str(v.model),
+    rubric_version: str(v.rubric_version) ?? "?",
+  };
+}
+
+/** Keep only string values: these land in <code> elements as text. */
+function strings<K extends string>(v: unknown, keys: readonly K[]): Partial<Record<K, string>> | undefined {
+  if (!isObj(v)) return undefined;
+  const out: Partial<Record<K, string>> = {};
+  for (const k of keys) {
+    const s = str(v[k]);
+    if (s !== null) out[k] = s;
+  }
+  return out;
+}
+
 function parseSummary(v: unknown): CallSummary {
   if (!isObj(v) || !str(v.call_id)) invalid("list item without call_id");
   return {
@@ -139,15 +160,29 @@ function parseSummary(v: unknown): CallSummary {
     overall_score: num(v.overall_score),
     status: (str(v.status) as CallSummary["status"]) ?? null,
     turns: num(v.turns) ?? 0,
+    analyzer: parseAnalyzerInfo(v.analyzer),
   };
 }
 
+/**
+ * The analyzer serves the record as the agent stored it, so every rendered field is
+ * normalized here: a wrong type in one field degrades that field, not the whole page.
+ */
 function parseRecord(v: unknown): CallRecord {
   if (!isObj(v) || !str(v.call_id) || !Array.isArray(v.turns)) invalid("record");
   // Empty text is valid (a turn interrupted before any words were transcribed).
   const turns = v.turns.filter((t): t is Obj => isObj(t) && !!str(t.id) && str(t.text) !== null);
   return {
-    ...(v as unknown as CallRecord),
+    schema_version: num(v.schema_version) ?? 1,
+    call_id: v.call_id as string,
+    room: str(v.room) ?? "",
+    agent_name: str(v.agent_name) ?? "",
+    started_at: str(v.started_at) ?? "",
+    ended_at: str(v.ended_at) ?? "",
+    duration_s: num(v.duration_s) ?? 0,
+    end_reason: str(v.end_reason),
+    prompt: strings(v.prompt, ["profile", "fingerprint", "version", "voice", "backend"] as const),
+    models: strings(v.models, ["voice_model", "voice", "backend_model"] as const),
     turns: turns.map((t) => ({
       id: t.id as string,
       role: t.role === "user" ? "user" : "assistant",
@@ -157,9 +192,16 @@ function parseRecord(v: unknown): CallRecord {
       interrupted: t.interrupted === true,
       transcript_confidence: num(t.transcript_confidence),
     })),
-    tool_calls: arr(v.tool_calls).filter(
-      (c): c is CallRecord["tool_calls"][number] => isObj(c) && !!str(c.id) && !!str(c.name),
-    ),
+    tool_calls: arr(v.tool_calls)
+      .filter((c): c is Obj => isObj(c) && !!str(c.id) && !!str(c.name))
+      .map((c) => ({
+        id: c.id as string,
+        name: c.name as string,
+        arguments: str(c.arguments) ?? "",
+        output: str(c.output),
+        is_error: c.is_error === true,
+        created_at: str(c.created_at),
+      })),
   };
 }
 
@@ -168,9 +210,7 @@ function parseAnalysis(v: unknown): Analysis | null {
   if (!isObj(v) || !str(v.status)) invalid("analysis");
   return {
     ...(v as unknown as Analysis),
-    analyzer: isObj(v.analyzer)
-      ? (v.analyzer as Analysis["analyzer"])
-      : { provider: "unknown", model: null, rubric_version: "?" },
+    analyzer: parseAnalyzerInfo(v.analyzer) ?? { provider: "unknown", model: null, rubric_version: "?" },
     scores: isObj(v.scores) ? (v.scores as Analysis["scores"]) : {},
     flags: arr(v.flags) as Analysis["flags"],
     sentiment: arr(v.sentiment).filter(

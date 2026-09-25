@@ -29,19 +29,23 @@ export function EmptyCalls() {
 
 export function AnalyzerUnavailable({
   title = "Can’t load calls right now",
+  headingLevel = 2,
   message,
   retryHref,
 }: {
   title?: string;
+  /** 1 when this is the page's main content (no other <h1> on the page). */
+  headingLevel?: 1 | 2;
   message: string;
   retryHref: string;
 }) {
+  const Heading = headingLevel === 1 ? "h1" : "h2";
   return (
     <section className={`card ${styles.state}`} role="alert">
       <div className={`${styles.stateIcon} ${styles.stateIconError}`}>
         <AlertIcon />
       </div>
-      <h2>{title}</h2>
+      <Heading>{title}</Heading>
       <p>{message}</p>
       <p>Running locally? Start the analyzer:</p>
       <pre className={styles.cmd}>

@@ -59,15 +59,15 @@ All variables are server-only. None use the `NEXT_PUBLIC_` prefix, so none reach
 | `lib/analyzer.ts` | Server-only analyzer client (`import "server-only"`). It uses an 8 s timeout (`AbortSignal.timeout`), `cache: "no-store"`, and minimal runtime shape checks. Every failure becomes a friendly `AnalyzerError`, while details go to the server log only. Call ids are checked against the analyzer's own call-id alphabet before they're put in a URL. |
 | `app/calls/**` | Server Components that call the analyzer. They include `loading.tsx` skeletons, empty and error states, and `not-found`. |
 | `app/actions.ts` | Server Actions: `loadMoreCalls` (pagination), `reanalyze` (`POST /v1/calls/{id}/analyze`, then `refresh()`), `unlock`. The browser only ever talks to these and never to the analyzer. |
-| `components/calls/AnalysisPoller.tsx` | While an analysis is `pending` or `running`, calls `router.refresh()` every 2.5 s. It pauses in background tabs and stops after 3 minutes. |
+| `components/calls/AnalysisPoller.tsx` | While an analysis is `pending` or `running`, calls `router.refresh()` with exponential backoff (2.5 s up to 30 s). It pauses in background tabs and gives up after 3 minutes of visible time, then tells you to refresh. |
 | `lib/types.ts` | TypeScript mirror of the analyzer's CallRecord / Analysis v1 contracts. |
 
-Scores are 1–5 where higher is better, except **customer frustration**, where 1 means no frustration. The scorecard colors that dimension inverted and labels it "Lower is better". When `analyzer.provider` is `heuristic`, the detail page shows an **Offline heuristic analysis** badge, since those scores come from keyword rules, not an LLM.
+Scores are 1–5 where higher is better, except **customer frustration**, where 1 means no frustration. The scorecard colors that dimension inverted and labels it "Lower is better". When `analyzer.provider` is `heuristic`, the detail page shows an **Offline heuristic analysis** badge (and the Calls list a **Heuristic** badge), since those scores come from keyword rules, not an LLM.
 
 ## Passcode gate (`DEMO_PASSCODE`)
 
 - **Unset** (default): open access, fine for localhost.
-- **Set**: the Live and Calls pages redirect to `/unlock`, and `POST /api/token` and every Server Action return an error until the visitor enters the passcode. A correct passcode sets an `httpOnly`, `SameSite=Strict` cookie (`Secure` in production) for 12 hours. The cookie holds `HMAC-SHA256(key = passcode, fixed label)`, so it proves the visitor once knew the passcode without storing it. Changing `DEMO_PASSCODE` logs everyone out. Comparisons are constant-time, the post-unlock redirect only accepts same-site paths, and a wrong guess waits 500 ms (which slows a sequential guesser, not parallel requests: that needs the rate limit below).
+- **Set**: the Live and Calls pages redirect to `/unlock`, and `POST /api/token` and every Server Action return an error until the visitor enters the passcode. A correct passcode sets an `httpOnly`, `SameSite=Strict` cookie (`Secure` in production) for 12 hours. The cookie holds `<issued_at>.<HMAC-SHA256(key = passcode, label + issued_at)>`, so it proves the visitor knew the passcode without storing it, and the server itself rejects it after 12 hours. Changing `DEMO_PASSCODE` logs everyone out. Comparisons are constant-time, the post-unlock redirect only accepts same-site paths, and a wrong guess waits 500 ms (which slows a sequential guesser, not parallel requests: that needs the rate limit below).
 
 This gate slows people down but isn't user auth: there are no accounts, and anyone with the passcode gets in.
 

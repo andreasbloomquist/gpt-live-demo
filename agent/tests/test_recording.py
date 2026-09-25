@@ -226,6 +226,31 @@ def test_repeated_message_id_yields_one_turn(bundle: PromptBundle) -> None:
     assert [(t["id"], t["text"]) for t in turns] == [("u1", "A table for two"), ("a1", "Sure.")]
 
 
+def test_ids_and_duration_are_capped_to_the_analyzer_limits(bundle: PromptBundle) -> None:
+    long_id = "x" * 300
+    items: list[llm.ChatItem] = [
+        llm.ChatMessage(id=long_id, role="user", content=["Hi"], created_at=EPOCH0),
+        llm.FunctionCall(call_id=long_id, name="n" * 300, arguments="{}", created_at=EPOCH0),
+        llm.FunctionCallOutput(call_id=long_id, output="ok", is_error=False, created_at=EPOCH0),
+    ]
+    record = build_call_record(
+        items,
+        call_id="c",
+        room="r",
+        agent_name="a",
+        started_at=T0,
+        ended_at=T0 + dt.timedelta(days=2),
+        end_reason=None,
+        bundle=bundle,
+        settings=Settings(_env_file=None),  # type: ignore[call-arg]
+    )
+    ((turn,), (call,)) = record["turns"], record["tool_calls"]
+    assert turn["id"] == call["id"] == "x" * recording.MAX_ID_CHARS
+    assert len(call["name"]) == recording.MAX_ID_CHARS
+    assert call["output"] == "ok"  # still paired with its output after capping
+    assert record["duration_s"] == recording.MAX_CALL_DURATION_S
+
+
 def test_long_turn_is_truncated_to_the_analyzer_limit(bundle: PromptBundle) -> None:
     items: list[llm.ChatItem] = [
         llm.ChatMessage(id="long", role="user", content=["word " * 10_000], created_at=EPOCH0)
@@ -389,6 +414,48 @@ async def test_undecodable_response_falls_back_to_disk(
     result = await exporter(tmp_path, handler).export(make_record(bundle))
     assert result.destination == "file"  # not "failed": the transcript is still kept
     assert result.detail == "DecodingError"
+
+
+async def test_429_is_retried_after_retry_after(tmp_path: Path, bundle: PromptBundle) -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(429, headers={"Retry-After": "0.01"})
+        return httpx.Response(202)
+
+    result = await exporter(tmp_path, handler).export(make_record(bundle))
+    assert (attempts, result.destination) == (2, "analyzer")
+
+
+async def test_429_beyond_the_budget_goes_straight_to_disk(
+    tmp_path: Path, bundle: PromptBundle
+) -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(429, headers={"Retry-After": "120"})
+
+    slow = exporter(tmp_path, handler, total_timeout_s=5)
+    result = await asyncio.wait_for(slow.export(make_record(bundle)), timeout=1)
+    assert attempts == 1  # didn't sleep 120 s, or wait out the 5 s budget
+    assert (result.destination, result.detail) == ("file", "analyzer returned HTTP 429")
+
+
+async def test_lone_surrogate_does_not_lose_the_record(
+    tmp_path: Path, bundle: PromptBundle
+) -> None:
+    items: list[llm.ChatItem] = [
+        llm.ChatMessage(id="u1", role="user", content=["caf\ud800e"], created_at=EPOCH0)
+    ]
+    result = await exporter(tmp_path, url=None).export(make_record(bundle, items))
+    assert result.destination == "file" and result.path is not None
+    saved = json.loads(result.path.read_text(encoding="utf-8"))
+    assert saved["turns"][0]["text"] == "caf?e"
 
 
 async def test_4xx_is_not_retried_but_record_is_kept(tmp_path: Path, bundle: PromptBundle) -> None:
