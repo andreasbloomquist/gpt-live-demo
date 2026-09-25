@@ -41,7 +41,7 @@ The transcript shows what the agent actually heard: per-turn speech-recognition 
 interruptions, and the tool calls in between.
 
 <p align="center">
-  <img alt="Transcript with confidence badges, an interruption marker and a tool call" src="docs/images/ui-call-detail-transcript-light.png" width="820">
+  <img alt="Transcript with confidence badges, interruption markers and tool calls" src="docs/images/ui-call-detail-transcript-light.png" width="820">
 </p>
 
 The **Live** view, where you talk to the agent, and the mobile layouts are in
@@ -238,8 +238,8 @@ base and head commits and compares *behavioral fingerprints*:
 
 Evals themselves use deterministic assertions first, then an LLM judge, over multiple trials with
 pass^k thresholds, under a hard cost budget. In GitHub Actions they run behind a protected
-environment, are skipped on fork PRs, and can be forced or skipped with the `evals:full` /
-`evals:skip` labels.
+environment, are skipped on fork PRs, wait on draft PRs until they're ready for review, and can
+be forced or skipped with the `evals:full` / `evals:skip` labels.
 
 → [`docs/evals.md`](docs/evals.md) · [`evals/README.md`](evals/README.md)
 

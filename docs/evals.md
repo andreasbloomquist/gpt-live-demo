@@ -706,6 +706,7 @@ is also a natural cache key, but the current code does not use it to skip runs (
 | The diff touches `evals/impact/**` or `.github/workflows/evals.yml`, or (CI only) the base has no planner yet | Everything runs, with `forced: planner code changed: running everything`. The fast path is bypassed. |
 | Label **`evals:full`**, `--force-all`, `EVALS_FORCE_ALL=1`, the nightly schedule, `workflow_dispatch` (defaults to force) | Everything runs, with `forced: label \`evals:full\``-style reasons. `EVALS_FORCE_REASON` sets the reason for an `EVALS_FORCE_ALL` run (the workflow uses it for the planner case). The fast path is bypassed. |
 | Label **`evals:skip`** | Nothing runs, and every pair lists `label \`evals:skip\``. It wins over `evals:full` and over a forced run. |
+| Draft PR (CI only) | The plan runs as usual, but the workflow's gate sets `can_spend=false`, so paid jobs skip with "Draft PR: paid evals are planned but not run until the PR is ready for review (or labelled evals:full)." Marking the PR ready re-triggers the workflow; `evals:full` overrides. |
 | `--suites a,b` / `--tiers brain` | Filters the plan. Skipped pairs say `not selected`. An unknown suite or tier name is an error (exit `2`), never an empty plan that reports green. |
 | `--no-merge-base`, `--no-fast-path` | Diff against the base tip, or always fingerprint both trees. |
 

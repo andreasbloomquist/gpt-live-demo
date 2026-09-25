@@ -95,7 +95,7 @@ flowchart LR
     end
 
     Exp -->|"POST /v1/calls"| API
-    Exp -.->|"analyzer unset or failing"| Disk[(".call-records/<br/>&lt;call_id&gt;.json")]
+    Exp -.->|"analyzer unset or failing"| Disk[(".call-records/<br/>call_id.json")]
     Disk -.->|"seed --dir"| DB
     API --> DB
     DB -->|"claim due job"| Loop
@@ -314,7 +314,7 @@ not-quite-right answers can be repaired in code instead of failing the whole ana
 Evidence verification is the piece we'd keep if we kept nothing else. It turns every score into
 a claim you can check in one click: the UI links each quote to its turn in the transcript.
 
-![Transcript with per-turn transcription confidence, an interruption and a tool call](images/ui-call-detail-transcript-light.png)
+![Transcript with per-turn transcription confidence, interruptions and tool calls](images/ui-call-detail-transcript-light.png)
 
 ---
 

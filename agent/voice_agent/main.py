@@ -41,6 +41,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import os
+import sys
 
 from dotenv import load_dotenv
 from livekit.agents import (
@@ -108,18 +109,28 @@ class ValidatingAgentServer(AgentServer):
     runs in each job *subprocess* after registration, so the worker would already be accepting
     dispatches when it failed.
 
-    A failed check exits the process with the actionable message (``SystemExit``) rather than
-    raising: LiveKit's CLI catches exceptions from ``run``, logs them as a traceback, and then
-    drains the never-started worker, which crashes with an unrelated ``AttributeError`` that
-    buries the real cause. ``SystemExit`` propagates past that handler and exits with status 1.
+    A failed check prints one actionable line and exits with status 1. Raising doesn't work
+    well here: LiveKit's CLI runs ``run`` in an unawaited task, catches exceptions from it,
+    logs a long traceback and then drains the never-started worker, which crashes with an
+    unrelated ``AttributeError``; even ``SystemExit`` gets logged as "Task exception was never
+    retrieved". Nothing has started at this point (no registration, no connections, no child
+    processes), so exiting immediately is safe.
     """
 
     async def run(self, *, devmode: bool = False, unregistered: bool = False) -> None:
         try:
             preflight(get_settings())
         except Exception as exc:  # settings validation, missing keys, bad prompts or tools
-            raise SystemExit(f"voice-agent: invalid configuration, not starting: {exc}") from None
+            _exit_with_error(f"voice-agent: invalid configuration, not starting: {exc}")
+            return
         await super().run(devmode=devmode, unregistered=unregistered)
+
+
+def _exit_with_error(message: str) -> None:
+    """Print ``message`` to stderr and end the process with status 1 (patched in tests)."""
+    print(message, file=sys.stderr, flush=True)
+    logging.shutdown()
+    os._exit(1)
 
 
 server = ValidatingAgentServer()

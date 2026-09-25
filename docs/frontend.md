@@ -113,7 +113,7 @@ better". When `analyzer.provider` is `heuristic`, the detail page shows an **Off
 analysis** badge and the list a **Heuristic** badge, because those scores come from keyword
 rules, not an LLM ([`call-analyzer.md` §9](call-analyzer.md#9-providers-an-llm-judge-or-an-offline-heuristic)).
 
-![Transcript with confidence badges, an interruption and a tool call](images/ui-call-detail-transcript-light.png)
+![Transcript with confidence badges, interruptions and tool calls](images/ui-call-detail-transcript-light.png)
 
 ---
 

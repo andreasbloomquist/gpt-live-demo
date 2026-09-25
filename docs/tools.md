@@ -690,8 +690,9 @@ tests pin the tool set on purpose, so a new tool is a visible, reviewed change. 
 
 ```console
 $ uv run pytest -q agent/tests
-......................................................................   [100%]
-70 passed
+........................................................................ [ 54%]
+............................................................             [100%]
+132 passed
 ```
 
 ### Step 7: add an eval suite

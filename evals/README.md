@@ -191,11 +191,14 @@ per-tier fingerprints to `$GITHUB_OUTPUT`, and a Markdown table to `$GITHUB_STEP
 ## CI
 
 - `.github/workflows/ci.yml`: ruff, pytest, rendering of every profile, suite validation,
-  dry-runs, and the frontend lint/typecheck/build. None of it needs secrets.
+  dry-runs, the call analyzer's own lint/tests/seed smoke test, and the frontend
+  lint/typecheck/build. None of it needs secrets.
 - `.github/workflows/evals.yml`: `plan` (base commit's planner) → `brain` matrix → `voice`
   matrix (only if brain passed) → `report` (builds it read-only) → `comment` (posts the sticky
   PR comment listing what ran, what was skipped, and why; `pull-requests: write`, no checkout).
   Actions are pinned to commit SHAs and every checkout uses `persist-credentials: false`.
+  Draft PRs are planned (free) but the paid tiers wait until the PR is ready for review, unless
+  it carries `evals:full`.
 
 Setup: create an `evals` environment that holds the `OPENAI_API_KEY` secret. Add required
 reviewers to it in the repository settings if paid runs should wait for approval (the workflow

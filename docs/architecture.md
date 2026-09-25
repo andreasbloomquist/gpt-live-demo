@@ -266,7 +266,7 @@ Each component gets the same five questions: **role**, **why we chose it**, **be
 - **Why.** Prompts and tools must agree. The composer refuses a skill module whose
   `requires_tools` aren't enabled, and the registry refuses an unknown tool name. Each spec's
   `source_modules` also tells the eval change detector which code belongs to which tool.
-- **Benefit.** Adding a tool touches a known set of files. A typo fails at session start, never
+- **Benefit.** Adding a tool touches a known set of files. A typo fails at worker startup, never
   silently.
 - **Drawback.** One level of indirection over `Agent(tools=[...])`. Tools, and the provider
   behind them, are built per session, so provider state such as the OpenTable OAuth token lives
@@ -722,8 +722,8 @@ The Call Analyzer reads `analyzer/.env` (from [`analyzer/.env.example`](../analy
 
 | Failure | What happens | Where you see it |
 |---|---|---|
-| Invalid manifest or module (unknown variable, wrong target, missing tool) | `PromptCompositionError` at composition | Unit tests and the `render` CLI in CI. In production, the job fails at start. |
-| Unknown tool name in a profile | `UnknownToolError` in `resolve_tools` | Session start. `test_every_profile_composes` catches it in CI. |
+| Invalid manifest or module (unknown variable, wrong target, missing tool) | `PromptCompositionError` at composition | Unit tests and the `render` CLI in CI. In production, `preflight()` composes the configured profile, so the worker refuses to start. |
+| Unknown tool name in a profile | `UnknownToolError` in `resolve_tools` | Worker startup (`preflight()`). `test_every_profile_composes` catches it in CI. |
 | `OPENAI_API_KEY` missing, unknown `AGENT_TIMEZONE`, or `CALL_ANALYZER_URL` without a token | `preflight()` fails in `ValidatingAgentServer.run` | The worker exits at startup with `voice-agent: invalid configuration, not starting: …` and never registers. |
 | `RESTAURANT_PROVIDER=opentable` without credentials | `ConfigurationError` in `resolve_tools`, called by `preflight()` | The worker exits at startup with the message. |
 | Model passes a bad date/time/party size | `ToolError` with a corrective message; the backend may retry once | Worker log warning; the caller hears a clarifying question. |

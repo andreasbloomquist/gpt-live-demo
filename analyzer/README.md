@@ -2,7 +2,7 @@
 
 A small, separately deployable service that **stores every call the voice agent handles and grades
 it**: a summary, the caller's intent, whether it was resolved, nine 1-5 quality scores with quoted
-evidence, caller sentiment per turn, problem flags, and exact call metrics. The frontend's History
+evidence, caller sentiment per turn, problem flags, and exact call metrics. The frontend's Calls
 and Call detail views read from it.
 
 It grades calls with a **small LLM as a judge** (any OpenAI-compatible endpoint), or, with no API
