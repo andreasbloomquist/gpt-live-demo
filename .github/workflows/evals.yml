@@ -156,10 +156,16 @@ jobs:
         id: gate
         env:
           IS_FORK: ${{ github.event.pull_request.head.repo.fork == true }}
+          # Drafts churn: plan them (free) but don't pay until the PR is marked ready for review
+          # (`ready_for_review` re-triggers this workflow). Apply `evals:full` to override.
+          IS_DRAFT: ${{ github.event.pull_request.draft == true && !contains(github.event.pull_request.labels.*.name, 'evals:full') }}
         run: |
           if [ "$IS_FORK" = "true" ]; then
             echo "can_spend=false" >> "$GITHUB_OUTPUT"
             echo "reason=PR from a fork: repository secrets are not available, paid evals skipped. A maintainer can push the branch to this repository and run them via workflow_dispatch." >> "$GITHUB_OUTPUT"
+          elif [ "$IS_DRAFT" = "true" ]; then
+            echo "can_spend=false" >> "$GITHUB_OUTPUT"
+            echo "reason=Draft PR: paid evals are planned but not run until the PR is ready for review (or labelled evals:full)." >> "$GITHUB_OUTPUT"
           else
             echo "can_spend=true" >> "$GITHUB_OUTPUT"
             echo "reason=" >> "$GITHUB_OUTPUT"

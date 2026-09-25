@@ -30,6 +30,7 @@ jobs:
     outputs:
       python: ${{ github.event_name == 'push' || steps.filter.outputs.python == 'true' }}
       frontend: ${{ github.event_name == 'push' || steps.filter.outputs.frontend == 'true' }}
+      analyzer: ${{ github.event_name == 'push' || steps.filter.outputs.analyzer == 'true' }}
     steps:
       # On pull_request the filter reads the changed files from the API (no checkout needed).
       # Pushes to main run everything, so the filter is skipped there.
@@ -47,6 +48,10 @@ jobs:
               - '.github/workflows/**'
             frontend:
               - 'frontend/**'
+              - '.github/workflows/ci.yml'
+            analyzer:
+              - 'analyzer/**'
+              - 'pyproject.toml' # analyzer's ruff config extends the root one
               - '.github/workflows/ci.yml'
 
   lint:
@@ -124,6 +129,35 @@ jobs:
         run: |
           uv run python -m evals run --tier brain --dry-run
           uv run python -m evals run --tier voice --dry-run
+
+  analyzer:
+    # A separate uv project with its own lockfile: it deploys independently of the agent.
+    name: Call analyzer (lint, tests, seed smoke test)
+    needs: changes
+    if: needs.changes.outputs.analyzer == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: analyzer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: analyzer/uv.lock
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest -q
+      - name: Seed demo calls with the offline heuristic (no keys)
+        env:
+          ANALYZER_PROVIDER: heuristic
+          ANALYZER_DB_PATH: ${{ runner.temp }}/calls.db
+        run: uv run python -m call_analyzer seed
 
   frontend:
     name: Frontend (lint, typecheck, build)
