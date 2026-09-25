@@ -38,7 +38,9 @@ def bundle() -> PromptBundle:
 def synthetic_history() -> list[llm.ChatItem]:
     """A realistic concierge call, including items the record must skip."""
     return [
-        llm.ChatMessage(id="sys", role="system", content=["You are a concierge."], created_at=EPOCH0),
+        llm.ChatMessage(
+            id="sys", role="system", content=["You are a concierge."], created_at=EPOCH0
+        ),
         llm.ChatMessage(
             id="a1",
             role="assistant",
@@ -76,7 +78,9 @@ def synthetic_history() -> list[llm.ChatItem]:
         ),
         # The model's own transcription can come back empty (noise, a cough): not a turn.
         llm.ChatMessage(id="u-empty", role="user", content=["   "], created_at=EPOCH0 + 10.0),
-        llm.ChatMessage(id="dev", role="developer", content=["Be brief."], created_at=EPOCH0 + 10.5),
+        llm.ChatMessage(
+            id="dev", role="developer", content=["Be brief."], created_at=EPOCH0 + 10.5
+        ),
         llm.AgentHandoff(new_agent_id="concierge", created_at=EPOCH0 + 10.6),
         llm.ChatMessage(
             id="u2",
@@ -92,12 +96,20 @@ def synthetic_history() -> list[llm.ChatItem]:
             created_at=EPOCH0 + 13.0,
         ),
         llm.FunctionCallOutput(
-            call_id="call_web", output="Open daily from 5 pm.", is_error=False, created_at=EPOCH0 + 14
+            call_id="call_web",
+            output="Open daily from 5 pm.",
+            is_error=False,
+            created_at=EPOCH0 + 14,
         ),
         # An output whose call isn't in the history can't be described, so it's dropped.
-        llm.FunctionCallOutput(call_id="orphan", output="?", is_error=False, created_at=EPOCH0 + 14),
+        llm.FunctionCallOutput(
+            call_id="orphan", output="?", is_error=False, created_at=EPOCH0 + 14
+        ),
         llm.ChatMessage(
-            id="a3", role="assistant", content=["It's open every day from 5 pm."], created_at=EPOCH0 + 15
+            id="a3",
+            role="assistant",
+            content=["It's open every day from 5 pm."],
+            created_at=EPOCH0 + 15,
         ),
     ]
 
@@ -325,9 +337,7 @@ async def test_export_posts_to_analyzer(tmp_path: Path, bundle: PromptBundle) ->
     assert not (tmp_path / "records").exists()
 
 
-async def test_5xx_is_retried_once_then_saved_to_disk(
-    tmp_path: Path, bundle: PromptBundle
-) -> None:
+async def test_5xx_is_retried_once_then_saved_to_disk(tmp_path: Path, bundle: PromptBundle) -> None:
     attempts = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -459,7 +469,9 @@ async def test_export_logs_no_transcript_text(
 async def test_session_shutdown_writes_record(tmp_path: Path, bundle: PromptBundle) -> None:
     from voice_agent import main
 
-    ctx = SimpleNamespace(job=SimpleNamespace(room=SimpleNamespace(name="demo-room"), agent_name=""))
+    ctx = SimpleNamespace(
+        job=SimpleNamespace(room=SimpleNamespace(name="demo-room"), agent_name="")
+    )
     session = SimpleNamespace(
         history=llm.ChatContext(synthetic_history()),
         usage=SimpleNamespace(model_usage=[]),

@@ -93,8 +93,8 @@ def build_call_record(
     ``call_id``; an output whose call isn't in the history is dropped because the record can't
     say what was called.
 
-    Deterministic (no I/O, no clock), so tests can pin every field. Raises :class:`ValueError` for an
-    invalid ``call_id`` or naive datetimes: those are programming errors, not data problems.
+    Deterministic (no I/O, no clock), so tests can pin every field. Raises :class:`ValueError`
+    for an invalid ``call_id`` or naive datetimes: those are programming errors, not bad data.
     """
     if not CALL_ID_PATTERN.fullmatch(call_id):
         raise ValueError(f"call_id {call_id!r} is not filename-safe ({CALL_ID_PATTERN.pattern})")
@@ -112,8 +112,8 @@ def build_call_record(
         elif isinstance(item, llm.FunctionCallOutput):
             outputs.setdefault(item.call_id, item)
 
-    for call_id_, call in calls.items():
-        if (output := outputs.get(call_id_)) is not None:
+    for tool_call_id, call in calls.items():
+        if (output := outputs.get(tool_call_id)) is not None:
             call["output"] = _truncate(output.output, MAX_TOOL_OUTPUT_CHARS)
             call["is_error"] = output.is_error
 
@@ -255,8 +255,10 @@ class CallRecordExporter:
         return cls(settings.call_records_dir, analyzer_url=url, token=token)
 
     async def export(self, record: Mapping[str, Any]) -> ExportResult:
-        call_id = str(record.get("call_id", ""))
-        log_fields = {"call_id": call_id, "turns": len(record.get("turns", ()))}
+        raw_id = record.get("call_id")
+        call_id = raw_id if isinstance(raw_id, str) else ""  # str(None) would be a valid id
+        turns = record.get("turns")
+        log_fields = {"call_id": call_id, "turns": len(turns) if isinstance(turns, list) else 0}
         try:
             result = await self._export(call_id, record)
         except Exception:  # last line of defence: recording must never break job shutdown
@@ -286,13 +288,14 @@ class CallRecordExporter:
         body = json.dumps(record, ensure_ascii=False, separators=(",", ":")).encode()
 
         detail = "CALL_ANALYZER_URL not set"
-        if self._url is not None:
+        if self._url is not None and self._token is not None:
             if len(body) > MAX_BODY_BYTES:
                 detail = f"record is {len(body)} bytes, over the analyzer's limit"
             else:
-                detail = await self._post(body)
-                if detail is None:
+                failure = await self._post(self._url, self._token, body)
+                if failure is None:
                     return ExportResult("analyzer")
+                detail = failure
 
         path = self._records_dir / f"{call_id}.json"
         try:
@@ -301,10 +304,9 @@ class CallRecordExporter:
             return ExportResult("failed", detail=f"{detail}; file write failed: {exc}")
         return ExportResult("file", path=path, detail=detail)
 
-    async def _post(self, body: bytes) -> str | None:
+    async def _post(self, url: str, token: str, body: bytes) -> str | None:
         """POST with one retry; ``None`` on success, else a short reason."""
-        assert self._url is not None and self._token is not None
-        headers = {"Authorization": f"Bearer {self._token}", "Content-Type": "application/json"}
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         async with httpx.AsyncClient(
             transport=self._transport, timeout=self._attempt_timeout_s
         ) as client:
@@ -315,7 +317,7 @@ class CallRecordExporter:
                     if attempt:
                         await asyncio.sleep(self._retry_delay_s)
                     try:
-                        response = await client.post(self._url, content=body, headers=headers)
+                        response = await client.post(url, content=body, headers=headers)
                     except httpx.TransportError as exc:  # connect/read errors and timeouts
                         reason = type(exc).__name__
                         continue

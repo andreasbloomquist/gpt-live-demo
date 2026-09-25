@@ -1,24 +1,33 @@
 "use client";
 
 /**
- * Live transcript for both sides of the conversation.
+ * Live transcript for both sides of the conversation, as chat bubbles.
  *
- * livekit-agents publishes transcriptions as text streams on the
- * `lk.transcription` topic (agent speech and, when available, user speech).
- * useTranscriptions() collects them; each stream is one utterance that grows
- * as new text arrives, so re-rendering the list gives a live transcript.
+ * livekit-agents publishes transcriptions as text streams on the `lk.transcription`
+ * topic. useTranscriptions() collects them, merging updates that share an
+ * `lk.segment_id` into one entry (so a caller's interim STT text is replaced in
+ * place, and the agent's reply grows word by word).
+ *
+ * Order: the hook's array is in first-seen order, which is the order utterances
+ * started. We keep that instead of sorting by `streamInfo.timestamp`, because the
+ * hook swaps in the *latest* stream's info on every update, so a long user segment
+ * would otherwise jump below the agent reply that started after it.
  */
 import { useEffect, useRef } from "react";
 import { useLocalParticipant, useTranscriptions } from "@livekit/components-react";
+import styles from "./Live.module.css";
 
-export function Transcript() {
+const SEGMENT_ID = "lk.segment_id";
+const FINAL = "lk.transcription_final";
+
+const timeFmt = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+
+export function Transcript({ agentSpeaking }: { agentSpeaking: boolean }) {
   const transcriptions = useTranscriptions();
   const { localParticipant } = useLocalParticipant();
   const logRef = useRef<HTMLDivElement>(null);
 
-  const lines = [...transcriptions]
-    .filter((t) => t.text.trim().length > 0)
-    .sort((a, b) => a.streamInfo.timestamp - b.streamInfo.timestamp);
+  const lines = transcriptions.filter((t) => t.text.trim().length > 0);
 
   // Keep the newest line in view (re-runs as lines are added or grow). Scroll only the
   // transcript box: scrollIntoView() would also yank the whole page on every word.
@@ -29,20 +38,43 @@ export function Transcript() {
   }, [lines.length, lastText]);
 
   return (
-    <div ref={logRef} className="transcript" role="log" aria-label="Transcript">
-      {lines.length === 0 ? (
-        <p className="muted">Transcript will appear here.</p>
-      ) : (
-        lines.map((t) => {
-          const isUser = t.participantInfo.identity === localParticipant.identity;
-          return (
-            <p key={t.streamInfo.id} className={isUser ? "line user" : "line agent"}>
-              <span className="who">{isUser ? "You" : "Agent"}</span>
-              {t.text}
-            </p>
-          );
-        })
-      )}
-    </div>
+    <section className={`card ${styles.transcriptCard}`} aria-labelledby="transcript-title">
+      <header className={styles.transcriptHeader}>
+        <h2 id="transcript-title">Transcript</h2>
+        <span className="muted">Live</span>
+      </header>
+      <div ref={logRef} className={styles.log} role="log" aria-labelledby="transcript-title">
+        {lines.length === 0 ? (
+          <p className={styles.empty}>Say hello. The conversation appears here as you talk.</p>
+        ) : (
+          lines.map((t, i) => {
+            const isUser = t.participantInfo.identity === localParticipant.identity;
+            const attrs = t.streamInfo.attributes ?? {};
+            // Caller STT sends interim results as separate non-final streams. The agent's
+            // header always says non-final (its final flag rides on the stream trailer,
+            // which the hook doesn't surface), so for Ava use "still speaking" instead.
+            const interim = isUser
+              ? attrs[FINAL] === "false"
+              : agentSpeaking && i === lines.length - 1;
+            return (
+              <div
+                key={attrs[SEGMENT_ID] ?? t.streamInfo.id}
+                className={`${styles.msg} ${isUser ? styles.fromUser : styles.fromAgent}`}
+                data-interim={interim || undefined}
+              >
+                <p className={styles.bubble}>
+                  <span className="sr-only">{isUser ? "You: " : "Ava: "}</span>
+                  {t.text}
+                </p>
+                <span className={styles.meta} aria-hidden="true">
+                  {isUser ? "You" : "Ava"} · {timeFmt.format(t.streamInfo.timestamp)}
+                  {interim && (isUser ? " · transcribing…" : " · speaking…")}
+                </span>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </section>
   );
 }

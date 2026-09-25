@@ -53,11 +53,11 @@ export function analyzerErrorMessage(e: unknown): string {
 }
 
 /**
- * Call ids go into an upstream URL path, so only accept a conservative charset
- * (what the agent generates: room name + short uuid). Starting with an alphanumeric
- * rules out "." / ".." path segments; encodeURIComponent is applied on top anyway.
+ * Call ids go into an upstream URL path, so only accept the analyzer's own call-id
+ * alphabet (analyzer/call_analyzer/models.py `CallId`). The first character can't be
+ * ".", which rules out "." / ".." path segments; encodeURIComponent is applied on top.
  */
-const CALL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const CALL_ID_RE = /^[A-Za-z0-9_][A-Za-z0-9._:@=+-]{0,199}$/;
 export function isValidCallId(id: unknown): id is string {
   return typeof id === "string" && CALL_ID_RE.test(id);
 }
@@ -141,7 +141,8 @@ function parseSummary(v: unknown): CallSummary {
 
 function parseRecord(v: unknown): CallRecord {
   if (!isObj(v) || !str(v.call_id) || !Array.isArray(v.turns)) invalid("record");
-  const turns = v.turns.filter((t): t is Obj => isObj(t) && !!str(t.id) && !!str(t.text));
+  // Empty text is valid (a turn interrupted before any words were transcribed).
+  const turns = v.turns.filter((t): t is Obj => isObj(t) && !!str(t.id) && str(t.text) !== null);
   return {
     ...(v as unknown as CallRecord),
     turns: turns.map((t) => ({

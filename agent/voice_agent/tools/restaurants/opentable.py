@@ -38,7 +38,7 @@ from .base import (
     ProviderUnavailableError,
     RestaurantNotFoundError,
 )
-from .models import AvailabilityQuery, RestaurantAvailability, TimeSlot
+from .models import AvailabilityQuery, AvailabilityStatus, RestaurantAvailability, TimeSlot
 
 logger = logging.getLogger(__name__)
 
@@ -234,6 +234,7 @@ class OpenTableProvider:
                 continue
             slots.append(TimeSlot(time=when.strftime("%H:%M"), area=raw.get("seating_area")))
 
+        status: AvailabilityStatus
         if payload.get("closed"):
             status = "closed"
         elif any(s.time == requested for s in slots):
