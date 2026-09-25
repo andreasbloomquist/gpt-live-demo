@@ -6,9 +6,10 @@
  * set, the token also carries an explicit agent dispatch (needed when the
  * Python worker registers with `agent_name=...`, which disables auto-dispatch).
  *
- * SECURITY: this route is unauthenticated. Anyone who can reach it gets a token,
- * and every token starts a paid GPT-Live session. That is fine on localhost; before
- * exposing it publicly, put your app's auth and a rate limit in front of it.
+ * SECURITY: every token starts a paid GPT-Live session. Without DEMO_PASSCODE this
+ * route is open to anyone who can reach it (fine on localhost). With DEMO_PASSCODE set
+ * it requires the unlock cookie (see lib/passcode.ts). Either way, add a rate limit
+ * before exposing it publicly.
  * The grant is least-privilege: join this one room, publish the microphone only
  * (no camera/screen, no data messages), and subscribe to the agent's audio.
  */
@@ -19,12 +20,22 @@ import {
   RoomConfiguration,
   TrackSource,
 } from "livekit-server-sdk";
+import { isUnlocked } from "@/lib/passcode";
 import type { ConnectionDetails } from "@/lib/types";
 
 // Never cache: every response contains a unique, secret token.
 export const dynamic = "force-dynamic";
 
+const NO_STORE = { "Cache-Control": "no-store" };
+
 export async function POST() {
+  if (!(await isUnlocked())) {
+    return NextResponse.json(
+      { error: "Enter the demo passcode first." },
+      { status: 401, headers: NO_STORE },
+    );
+  }
+
   const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_AGENT_NAME } =
     process.env;
 
@@ -37,7 +48,7 @@ export async function POST() {
         error: `Missing environment variable(s): ${missing.join(", ")}. ` +
           "Copy frontend/.env.example to frontend/.env.local and fill in your LiveKit credentials.",
       },
-      { status: 500 },
+      { status: 500, headers: NO_STORE },
     );
   }
 
@@ -75,5 +86,5 @@ export async function POST() {
     participantToken: await token.toJwt(),
     participantName,
   };
-  return NextResponse.json(details, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json(details, { headers: NO_STORE });
 }

@@ -4,13 +4,14 @@ Everything that differs between a laptop, CI, and production lives here, so the 
 code can take a :class:`Settings` object instead of reaching into ``os.environ``. Secrets are
 typed as :class:`~pydantic.SecretStr` so they never show up in logs or reprs by accident, and
 every secret is *optional*: importing the agent (for tests, evals, or ``--help``) must work
-without keys. Missing credentials are reported only when something actually needs them, at
-session start.
+without keys. Missing credentials are reported only when something actually needs them: when
+the worker starts (``main.preflight``) and again at session start.
 """
 
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -67,6 +68,14 @@ class Settings(BaseSettings):
     opentable_client_secret: SecretStr | None = None
     opentable_timeout_seconds: float = Field(default=6.0, gt=0)
 
+    # --- Call recording ------------------------------------------------------------------
+    # At session end the transcript + metadata is sent to the Call Analyzer service, or written
+    # to CALL_RECORDS_DIR when no analyzer is configured (or it can't be reached).
+    call_recording_enabled: bool = True
+    call_analyzer_url: str | None = None
+    call_analyzer_token: SecretStr | None = None
+    call_records_dir: Path = Path(".call-records")
+
     # --- Misc ----------------------------------------------------------------------------
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
@@ -78,6 +87,22 @@ class Settings(BaseSettings):
             ZoneInfo(value)
         except (ZoneInfoNotFoundError, ValueError) as exc:
             raise ValueError(f"AGENT_TIMEZONE {value!r} is not a known IANA timezone") from exc
+        return value
+
+    @field_validator("call_analyzer_url", "call_analyzer_token", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        # `CALL_ANALYZER_URL=` in a .env file means "not configured", not "the empty URL".
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("call_analyzer_url")
+    @classmethod
+    def _http_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip().rstrip("/")
+        if not value.startswith(("http://", "https://")):
+            raise ValueError(f"CALL_ANALYZER_URL {value!r} must start with http:// or https://")
         return value
 
     @field_validator("log_level", mode="before")
@@ -92,6 +117,23 @@ class Settings(BaseSettings):
                 "OPENAI_API_KEY is not set. Copy .env.example to .env and add your key."
             )
         return self.openai_api_key.get_secret_value()
+
+    def call_analyzer_endpoint(self) -> tuple[str, str] | None:
+        """``(base_url, token)`` for the Call Analyzer, or ``None`` if no URL is configured.
+
+        A URL without a token is a misconfiguration rather than "recording off": every analyzer
+        request would be rejected with 401 and each call would silently land on disk instead.
+        """
+        if self.call_analyzer_url is None:
+            return None
+        token = self.call_analyzer_token.get_secret_value() if self.call_analyzer_token else ""
+        if not token:
+            raise ConfigurationError(
+                "CALL_ANALYZER_URL is set but CALL_ANALYZER_TOKEN is not. Set the token to the "
+                "analyzer's shared secret, or unset CALL_ANALYZER_URL to write call records to "
+                "CALL_RECORDS_DIR instead."
+            )
+        return self.call_analyzer_url, token
 
 
 @lru_cache(maxsize=1)

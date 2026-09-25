@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "call_id": "gpt-live-b3d9f0a4-d6133184",
+  "room": "gpt-live-b3d9f0a4",
+  "agent_name": "gpt-live-agent",
+  "started_at": "2026-09-24T21:20:16.000Z",
+  "ended_at": "2026-09-24T21:21:19.039Z",
+  "duration_s": 63.0,
+  "end_reason": "participant_disconnected",
+  "prompt": {
+    "profile": "concierge",
+    "fingerprint": "3a38d1b337b0d595a0bf2cc26b69ebf9a4206e65002e0148f5d5e0e1b3bad15f",
+    "version": "3a38d1b337b0",
+    "voice": "156db23431d2",
+    "backend": "e3ad63e9c465"
+  },
+  "models": {
+    "voice_model": "gpt-live-1",
+    "voice": "marin",
+    "backend_model": "gpt-5.6-luna"
+  },
+  "turns": [
+    {
+      "id": "item_49332e5b635b",
+      "role": "assistant",
+      "text": "Hi, this is Ava with Tablesite. How can I help you today?",
+      "started_at": "2026-09-24T21:20:17.800Z",
+      "ended_at": "2026-09-24T21:20:22.244Z",
+      "interrupted": false,
+      "transcript_confidence": null
+    },
+    {
+      "id": "item_9c97cfedcf28",
+      "role": "user",
+      "text": "Hi, I'm organizing a birthday dinner at Foreign Cinema next Saturday, the third. We're twelve people, around seven.",
+      "started_at": "2026-09-24T21:20:22.844Z",
+      "ended_at": "2026-09-24T21:20:29.051Z",
+      "interrupted": false,
+      "transcript_confidence": 0.94
+    },
+    {
+      "id": "item_d4a9db155974",
+      "role": "assistant",
+      "text": "Fun! Twelve people at Foreign Cinema on Saturday the third at seven. Let me check.",
+      "started_at": "2026-09-24T21:20:29.651Z",
+      "ended_at": "2026-09-24T21:20:35.206Z",
+      "interrupted": false,
+      "transcript_confidence": null
+    },
+    {
+      "id": "item_357a93636be3",
+      "role": "assistant",
+      "text": "For a group of twelve, Foreign Cinema handles bookings directly, so I can't check it online. The best next step is to call them or use the private events form on their website.",
+      "started_at": "2026-09-24T21:20:37.706Z",
+      "ended_at": "2026-09-24T21:20:49.929Z",
+      "interrupted": false,
+      "transcript_confidence": null
+    },
+    {
+      "id": "item_9b6bcb72bb1c",
+      "role": "user",
+      "text": "Ah, okay. Could you check for eight people instead, and the rest of us join later?",
+      "started_at": "2026-09-24T21:20:50.529Z",
+      "ended_at": "2026-09-24T21:20:56.046Z",
+      "interrupted": false,
+      "transcript_confidence": 0.9
+    },
+    {
+      "id": "item_6c7179863e7c",
+      "role": "assistant",
+      "text": "I can check eight, but I'd be careful: if twelve people end up at the table, the restaurant will want to know in advance. Would you still like me to check eight at seven?",
+      "started_at": "2026-09-24T21:20:56.646Z",
+      "ended_at": "2026-09-24T21:21:09.238Z",
+      "interrupted": false,
+      "transcript_confidence": null
+    },
+    {
+      "id": "item_3d2866e03194",
+      "role": "user",
+      "text": "No, you're right. I'll just call them. Thanks for the heads up.",
+      "started_at": "2026-09-24T21:21:09.838Z",
+      "ended_at": "2026-09-24T21:21:13.976Z",
+      "interrupted": false,
+      "transcript_confidence": 0.93
+    },
+    {
+      "id": "item_3548af8753fb",
+      "role": "assistant",
+      "text": "Of course. Good luck with the birthday dinner!",
+      "started_at": "2026-09-24T21:21:14.576Z",
+      "ended_at": "2026-09-24T21:21:17.539Z",
+      "interrupted": false,
+      "transcript_confidence": null
+    }
+  ],
+  "tool_calls": [
+    {
+      "id": "call_aadf367be4208dd0d37e",
+      "name": "check_restaurant_availability",
+      "arguments": "{\"restaurant\":\"Foreign Cinema\",\"date\":\"2026-10-03\",\"time\":\"19:00\",\"party_size\":12,\"city\":\"San Francisco\"}",
+      "output": "{\"restaurant\":\"Foreign Cinema\",\"date\":\"2026-10-03\",\"weekday\":\"Saturday\",\"requested_time\":\"19:00\",\"party_size\":12,\"status\":\"unavailable\",\"requested_time_available\":false,\"nearest_available_times\":[],\"booking\":\"not booked - availability check only\",\"city\":\"San Francisco\",\"note\":\"Parties of 9 or more must be arranged directly with the restaurant.\"}",
+      "is_error": false,
+      "created_at": "2026-09-24T21:20:31.251Z"
+    }
+  ],
+  "usage": [
+    {
+      "type": "realtime_model",
+      "model": "gpt-live-1",
+      "session_duration_s": 63.0,
+      "input_audio_tokens": 630,
+      "output_audio_tokens": 663
+    },
+    {
+      "type": "backend_model",
+      "model": "gpt-5.6-luna",
+      "input_tokens": 3300,
+      "output_tokens": 105,
+      "reasoning_tokens": 40
+    }
+  ]
+}

@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "call_id": "gpt-live-9b27d3f1-a3c6bb5a",
+  "room": "gpt-live-9b27d3f1",
+  "agent_name": "gpt-live-agent",
+  "started_at": "2026-09-23T19:05:33.000Z",
+  "ended_at": "2026-09-23T19:06:39.238Z",
+  "duration_s": 66.2,
+  "end_reason": "participant_disconnected",
+  "prompt": {
+    "profile": "concierge",
+    "fingerprint": "3a38d1b337b0d595a0bf2cc26b69ebf9a4206e65002e0148f5d5e0e1b3bad15f",
+    "version": "3a38d1b337b0",
+    "voice": "156db23431d2",
+    "backend": "e3ad63e9c465"
+  },
+  "models": {
+    "voice_model": "gpt-live-1",
+    "voice": "marin",
+    "backend_model": "gpt-5.6-luna"
+  },
+  "turns": [
+    {
+      "id": "item_dddbdba765f2",
+      "role": "assistant",
+      "text": "Hi, this is Ava with Tablesite. How can I help you today?",
+      "started_at": "2026-09-23T19:05:34.800Z",
+      "ended_at": "2026-09-23T19:05:39.244Z",
+      "interrupted": false,
+      "transcript_confidence": null
+    },
+    {
+      "id": "item_cd22fadd9ab9",
+      "role": "user",
+      "text": "Hey, I'm looking for dinner at Nopa this Friday. Four of us, around seven.",
+      "started_at": "2026-09-23T19:05:39.844Z",
+      "ended_at": "2026-09-23T19:05:44.672Z",
+      "interrupted": false,
+      "transcript_confidence": 0.94
+    },
+    {
+      "id": "item_d901b688abcb",
+      "role": "assistant",
+      "text": "Got it: four people, Friday at seven, at Nopa. Let me take a look.",
+      "started_at": "2026-09-23T19:05:45.272Z",
+      "ended_at": "2026-09-23T19:05:50.457Z",
+      "interrupted": false,
+      "transcript_confidence": null
+    },
+    {
+      "id": "item_a77a55ed9cd8",
+      "role": "assistant",
+      "text": "Seven itself is taken, but I see a quarter to seven, seven fifteen, or six thirty. Would any of those work?",
+      "started_at": "2026-09-23T19:05:53.057Z",
+      "ended_at": "2026-09-23T19:06:00.834Z",
+      "interrupted": false,
+      "transcript_confidence": null
+    },
+    {
+      "id": "item_a703f085a3d3",
+      "role": "user",
+      "text": "Hmm. Seven fifteen works.",
+      "started_at": "2026-09-23T19:06:02.234Z",
+      "ended_at": "2026-09-23T19:06:03.614Z",
+      "interrupted": false,
+      "transcript_confidence": 0.91
+    },
+    {
+      "id": "item_8592965445c9",
+      "role": "assistant",
+      "text": "Great, seven fifteen on Friday for four looks open. Just so you know, I've only checked availability and haven't booked it, so you'll want to reserve it with Nopa or in the app soon.",
+      "started_at": "2026-09-23T19:06:04.214Z",
+      "ended_at": "2026-09-23T19:06:16.806Z",
+      "interrupted": false,
+      "transcript_confidence": null
+    },
+    {
+      "id": "item_ae7115fd1951",
+      "role": "user",
+      "text": "Will do. Do they have outdoor seating?",
+      "started_at": "2026-09-23T19:06:17.406Z",
+      "ended_at": "2026-09-23T19:06:19.820Z",
+      "interrupted": false,
+      "transcript_confidence": 0.93
+    },
+    {
+      "id": "item_227cbbce590c",
+      "role": "assistant",
+      "text": "I don't have seating details from the availability check, so I can't say for sure. The restaurant can tell you when you book, or I can look it up if you'd like.",
+      "started_at": "2026-09-23T19:06:20.420Z",
+      "ended_at": "2026-09-23T19:06:32.272Z",
+      "interrupted": false,
+      "transcript_confidence": null
+    },
+    {
+      "id": "item_50e75dbb7624",
+      "role": "user",
+      "text": "No that's fine, I'll ask them. Thanks!",
+      "started_at": "2026-09-23T19:06:32.872Z",
+      "ended_at": "2026-09-23T19:06:35.286Z",
+      "interrupted": false,
+      "transcript_confidence": 0.95
+    },
+    {
+      "id": "item_4e1767d12d09",
+      "role": "assistant",
+      "text": "Anytime. Have a great dinner!",
+      "started_at": "2026-09-23T19:06:35.886Z",
+      "ended_at": "2026-09-23T19:06:37.738Z",
+      "interrupted": false,
+      "transcript_confidence": null
+    }
+  ],
+  "tool_calls": [
+    {
+      "id": "call_e9c9db985bbd3c238660",
+      "name": "check_restaurant_availability",
+      "arguments": "{\"restaurant\":\"Nopa\",\"date\":\"2026-09-25\",\"time\":\"19:00\",\"party_size\":4,\"city\":\"San Francisco\"}",
+      "output": "{\"restaurant\":\"Nopa\",\"date\":\"2026-09-25\",\"weekday\":\"Friday\",\"requested_time\":\"19:00\",\"party_size\":4,\"status\":\"alternatives\",\"requested_time_available\":false,\"nearest_available_times\":[\"18:45\",\"19:15\",\"18:30\"],\"booking\":\"not booked - availability check only\",\"city\":\"San Francisco\"}",
+      "is_error": false,
+      "created_at": "2026-09-23T19:05:47.072Z"
+    }
+  ],
+  "usage": [
+    {
+      "type": "realtime_model",
+      "model": "gpt-live-1",
+      "session_duration_s": 66.2,
+      "input_audio_tokens": 662,
+      "output_audio_tokens": 767
+    },
+    {
+      "type": "backend_model",
+      "model": "gpt-5.6-luna",
+      "input_tokens": 3300,
+      "output_tokens": 105,
+      "reasoning_tokens": 40
+    }
+  ]
+}

@@ -246,6 +246,44 @@ def test_report_writers(tmp_path: Path) -> None:
     assert "brain/s/bad" in md and "1/2" in md
 
 
+def test_report_renders_model_output_inertly(tmp_path: Path) -> None:
+    from evals.report import aggregate_markdown, write_results
+
+    # A judge reason / matched reply can quote web content: it must not become live markdown.
+    hostile = "judge said ![x](https://t.example/p.gif) @maintainers `code`\n<b>hi</b>"
+    result = SuiteResult(suite="s", tier="brain", profile="concierge")
+    result.cases = [CaseResult("bad", [TrialResult(1, False, error=hostile)], 0.67)]
+    write_results(result, tmp_path)
+    line = next(ln for ln in aggregate_markdown(tmp_path).splitlines() if "brain/s/bad" in ln)
+    assert line.endswith(
+        "`error: judge said ![x](https://t.example/p.gif) @maintainers 'code' <b>hi</b>`"
+    )
+
+
+def test_toolschema_matches_gpt_live_delegation() -> None:
+    from livekit.agents import llm
+    from livekit.plugins.openai.realtime.gpt_live_model import _build_delegation_tools
+    from livekit.plugins.openai.tools import WebSearch
+
+    from evals.toolschema import tools_to_responses_schemas
+
+    @llm.function_tool
+    async def lookup(city: str) -> str:
+        """Look up a city."""
+        return city
+
+    class Kit(llm.Toolset):
+        @llm.function_tool
+        async def nested(self, n: int) -> int:
+            """Nested tool."""
+            return n
+
+    tools = [WebSearch(), lookup, Kit(id="kit")]
+    expected = _build_delegation_tools(llm.ToolContext(tools).flatten())
+    assert tools_to_responses_schemas(tools) == expected
+    assert [s.get("name") or s["type"] for s in expected] == ["lookup", "nested", "web_search"]
+
+
 # ----------------------------------------------------------------------------- CLI
 
 

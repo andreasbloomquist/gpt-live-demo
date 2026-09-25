@@ -241,3 +241,66 @@ def test_backend_options_in_model_py_run_both_tiers(repo: Path, edit) -> None:
 def test_voice_only_runtime_change_runs_voice_only(repo: Path, edit) -> None:
     edit("agent/voice_agent/agent.py", lambda t: t + "\n\n_EVALS_MARKER = 1\n")
     assert planned(plan_for(repo)) == every("voice")
+
+
+def test_unusual_file_names_are_not_misread_as_irrelevant(repo: Path) -> None:
+    # git C-quotes non-ASCII paths unless -z is used; a quoted path would dodge the prefix check.
+    (repo / "agent/voice_agent/tools/café.json").write_text('{"x": 1}\n', encoding="utf-8")
+    plan = plan_for(repo)
+    assert "agent/voice_agent/tools/café.json" in plan.changed_files
+    assert not any(n.startswith("fast path") for n in plan.notes)
+
+
+def test_agent_data_file_change_runs_everything(repo: Path) -> None:
+    # Non-Python files a module may read at runtime are behaviour too.
+    data = repo / "agent/voice_agent/tools/restaurants/fixtures.json"
+    data.write_text('{"nopa": ["19:00"]}\n')
+    commit_all(repo, "add data file")
+    data.write_text('{"nopa": ["20:00"]}\n')
+    plan = plan_for(repo)
+    assert planned(plan) == every("brain") | every("voice")
+    assert plan.changed_components == [
+        "code.other:agent/voice_agent/tools/restaurants/fixtures.json"
+    ]
+
+
+def test_module_imported_by_another_tool_reruns_that_tools_suites(repo: Path, edit) -> None:
+    # web_search reuses the restaurant tool's models: a change there is web_search's code too.
+    edit(
+        "agent/voice_agent/tools/web_search.py",
+        lambda t: t.replace(
+            "from ..config import Settings",
+            "from ..config import Settings\nfrom .restaurants import models  # noqa: F401",
+        ),
+    )
+    commit_all(repo, "web_search imports restaurant models")
+    edit("agent/voice_agent/tools/restaurants/models.py", lambda t: t + "\n\n_EVALS_MARKER = 1\n")
+    plan = plan_for(repo)
+    assert planned(plan) == every("brain")
+    assert set(plan.changed_components) == {
+        "tool.impl:check_restaurant_availability",
+        "tool.impl:web_search",
+    }
+
+
+def test_tool_claiming_config_does_not_hide_settings_changes(repo: Path, edit) -> None:
+    edit(
+        "agent/voice_agent/tools/registry.py",
+        lambda t: t.replace(
+            'source_modules=("voice_agent.tools.web_search",)',
+            'source_modules=("voice_agent.tools.web_search", "voice_agent.config")',
+        ),
+    )
+    commit_all(repo, "web_search claims config")
+    edit(
+        "agent/voice_agent/config.py",
+        lambda t: t.replace('gpt_live_voice: str = "marin"', 'gpt_live_voice: str = "cinder"'),
+    )
+    assert every("voice") <= planned(plan_for(repo))
+
+
+def test_import_time_print_does_not_break_fingerprinting(repo: Path, edit) -> None:
+    edit("agent/voice_agent/runtime.py", lambda t: t + '\n\nprint("hello from import")\n')
+    commit_all(repo, "noisy import")
+    plan = plan_for(repo, fast_path=False)
+    assert planned(plan) == set(), plan.notes

@@ -21,6 +21,9 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 
+# Call records written by the agent (contain transcripts)
+.call-records/
+
 # Eval artifacts
 evals/.results/
 eval-results/

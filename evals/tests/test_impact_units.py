@@ -17,7 +17,7 @@ from evals.impact.snapshot import Component, Snapshot, SuiteInfo
 
 
 def test_prompt_normalization_ignores_layout_but_not_words() -> None:
-    a = "# Style\n\nKeep it short and\nfriendly.   \n\n\n\n<!-- note -->Be kind.\n"
+    a = "# Style\n\nKeep it short and\nfriendly.   \n\n\n\nBe kind.\n"
     b = "# Style\n\nKeep it   short and friendly.\n\nBe kind."
     assert norm.normalize_prompt_for_fingerprint(a) == norm.normalize_prompt_for_fingerprint(b)
     c = "# Style\n\nKeep it short and friendly!\n\nBe kind."
@@ -34,6 +34,41 @@ def test_prompt_normalization_keeps_list_structure() -> None:
     assert norm.normalize_prompt_for_fingerprint(
         rewrapped
     ) == norm.normalize_prompt_for_fingerprint(bullets)
+
+
+def test_prompt_normalization_keeps_html_comments_that_reach_the_model() -> None:
+    # The composer strips comments per module; one opened in a module and closed in a later
+    # one (or re-formed by nesting) survives into the rendered prompt the model reads.
+    from voice_agent.prompts import normalize_prompt_text
+
+    def rendered(secret: str) -> str:
+        return normalize_prompt_text(f"Say <!<!-- x -->-- {secret} -->")
+
+    assert rendered("hi") == "Say <!-- hi -->"
+    assert norm.normalize_prompt_for_fingerprint(
+        rendered("hi")
+    ) != norm.normalize_prompt_for_fingerprint(rendered("bye"))
+    joined = "A <!-- note\n\nB is the rule -->"
+    assert norm.normalize_prompt_for_fingerprint(joined) != norm.normalize_prompt_for_fingerprint(
+        joined.replace("B is", "B is not")
+    )
+
+
+def test_prompt_normalization_keeps_nesting_and_code_blocks() -> None:
+    nested = "Rules:\n- be brief\n  - one sentence\n- be kind"
+    flat = "Rules:\n- be brief\n- one sentence\n- be kind"
+    assert norm.normalize_prompt_for_fingerprint(nested) != norm.normalize_prompt_for_fingerprint(
+        flat
+    )
+    fenced = "Example:\n```\nCaller: hi\nAgent:  hello\n```\nDone."
+    joined = "Example:\n```\nCaller: hi Agent: hello\n```\nDone."
+    assert norm.normalize_prompt_for_fingerprint(fenced) != norm.normalize_prompt_for_fingerprint(
+        joined
+    )
+    # ...while trailing space inside a fence is still cosmetic.
+    assert norm.normalize_prompt_for_fingerprint(fenced) == norm.normalize_prompt_for_fingerprint(
+        fenced.replace("hi\n", "hi   \n")
+    )
 
 
 def test_python_normalization_ignores_comments_docstrings_formatting() -> None:
@@ -80,6 +115,23 @@ def test_lockfile_versions() -> None:
     assert norm.lockfile_versions(lock) == {"livekit-agents": "1.8.3", "openai": "2.54.0"}
 
 
+def test_lockfile_versions_track_git_sources_and_forked_entries() -> None:
+    def lock(rev: str, second: str) -> str:
+        return (
+            f'[[package]]\nname = "livekit-agents"\nversion = "1.8.3"\n'
+            f'source = {{ git = "https://github.com/livekit/agents?rev={rev}" }}\n'
+            'dependencies = [\n    { name = "openai" },\n]\n\n'
+            '[package.optional-dependencies]\nname = "not-a-package"\n\n'
+            '[[package]]\nname = "openai"\nversion = "2.54.0"\nsource = { registry = "x" }\n\n'
+            f'[[package]]\nname = "openai"\nversion = "{second}"\nsource = {{ registry = "x" }}\n'
+        )
+
+    a = norm.lockfile_versions(lock("aaa", "2.10.0"))
+    assert set(a) == {"livekit-agents", "openai"}
+    assert a != norm.lockfile_versions(lock("bbb", "2.10.0"))  # same version, new git rev
+    assert a != norm.lockfile_versions(lock("aaa", "2.11.0"))  # the *second* openai entry
+
+
 # ----------------------------------------------------------------------------- rules
 
 
@@ -90,7 +142,11 @@ def test_lockfile_versions() -> None:
         ("gpt_live_model", "voice"),
         ("gpt_live_backend_model", "shared"),
         ("gpt_live_backend_reasoning_effort", "shared"),
+        ("gpt_live_backend_max_output_tokens", "shared"),  # not a credential "token"
         ("openai_api_key", None),
+        ("livekit_api_secret", None),
+        ("opentable_client_secret", None),
+        ("github_token", None),
         ("livekit_url", None),
         ("opentable_client_id", None),
         ("log_level", None),
@@ -225,6 +281,40 @@ def test_github_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     md = summary.read_text()
     assert "| `restaurants` | brain | ▶️ run |" in md
     assert json.loads(output.to_json(plan))["summary"]["voice"] == ["restaurants"]
+
+
+def test_markdown_neutralizes_pr_controlled_text() -> None:
+    base = _snap(**{"config.shared__x": "a"})
+    head = _snap(**{"config.shared__x": "b"})
+    plan = make_plan(base, head, base_ref="b", head_ref="h")
+    plan.notes.append('<img src="https://t.example/p.gif"> | row\nbreak')
+    md = output.to_markdown(plan)
+    assert "<img" not in md and "&lt;img" in md
+    assert "\\| row break" in md
+
+
+def test_unknown_suite_or_tier_filter_is_an_error() -> None:
+    from evals.impact.cli import PlanError, check_filters
+
+    suites = _snap().suites
+    check_filters(Overrides(only_suites=frozenset({"restaurants"})), suites)
+    with pytest.raises(PlanError, match="unknown suite"):
+        check_filters(Overrides(only_suites=frozenset({"restaurant"})), suites)
+    with pytest.raises(PlanError, match="unknown tier"):
+        check_filters(Overrides(only_tiers=frozenset({"brian"})), suites)
+
+
+def test_probe_timeout_is_a_tree_problem_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    from evals.impact import snapshot
+
+    def hang(*args: object, **kwargs: object) -> None:
+        raise subprocess.TimeoutExpired(cmd="probe", timeout=1)
+
+    monkeypatch.setattr(snapshot.subprocess, "run", hang)
+    result = snapshot.run_probe(Path("."), Path("."))
+    assert result["ok"] is False and "timed out" in result["error"]
 
 
 def test_describe_change_wording() -> None:

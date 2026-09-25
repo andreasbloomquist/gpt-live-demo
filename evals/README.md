@@ -134,8 +134,9 @@ probed in its own subprocess (`probe.py`) with that tree's `voice_agent` on `PYT
 | `prompt.voice:<profile>` | rendered voice instructions + greeting | voice tier of that profile's suites |
 | `prompt.backend:<profile>` | rendered backend instructions | brain + voice |
 | `profile.tools:<profile>` / `tool.schema:<tool>` | tool JSON as the model sees it | brain + voice of suites whose profile exposes the tool |
-| `tool.impl:<tool>` | normalized AST of `ToolSpec.source_modules` | **brain** of suites that declare the tool |
+| `tool.impl:<tool>` | normalized AST of `ToolSpec.source_modules` plus the agent modules they import | **brain** of suites that declare the tool |
 | `code.core` | composer, registry | everything |
+| `code.other:<path>` | any other file under `agent/voice_agent/`, data files included | everything |
 | `code.backend_runtime` | `model.py` (it holds `build_responses_options`, the brain tier's backend config) | brain + voice |
 | `code.voice_runtime` | `agent.py`, `main.py` | voice |
 | `config.voice:*` / `config.shared:*` | literal defaults in `config.py` (credentials, URLs and logging ignored) | voice / both |
@@ -144,8 +145,9 @@ probed in its own subprocess (`probe.py`) with that tree's `voice_agent` on `PYT
 | `deps:<pkg>` | `uv.lock` versions of `livekit*` and `openai` | everything |
 
 Normalization decides what counts as "no change":
-- **Prompts**: comments, whitespace, blank lines and paragraph re-wrapping are ignored. Words,
-  punctuation and list structure are not.
+- **Prompts**: the *rendered* prompt is compared, so HTML comments the composer strips are
+  ignored, and so are whitespace, blank lines and paragraph re-wrapping. Words, punctuation,
+  list structure and nesting, and fenced code blocks are not.
 - **Python**: comments and formatting are ignored, and so are *all* docstrings. That is safe
   because docstrings the model does see (tool descriptions, parameter docs) appear in the
   rendered tool schema, which is fingerprinted separately and routed to both tiers.
@@ -157,7 +159,8 @@ Degradation and overrides:
 - `--force-all`, `EVALS_FORCE_ALL=1`, the label `evals:full`, and the nightly schedule run
   everything.
 - The label `evals:skip` runs nothing.
-- `--suites` and `--tiers` filter the plan.
+- `--suites` and `--tiers` filter the plan; an unknown name is an error (exit 2), never an
+  empty plan.
 - Diffs that touch only docs, frontend or CI files take a fast path that skips rendering.
   This fast path, not a workflow `paths:` filter, is the first gate in CI, because GitHub
   applies `paths:` to `labeled` events too. That would stop `evals:full` from working on a

@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "call_id": "gpt-live-4c1e9a07-d6f56f89",
+  "room": "gpt-live-4c1e9a07",
+  "agent_name": "gpt-live-agent",
+  "started_at": "2026-09-23T01:42:10.000Z",
+  "ended_at": "2026-09-23T01:43:03.731Z",
+  "duration_s": 53.7,
+  "end_reason": "participant_disconnected",
+  "prompt": {
+    "profile": "concierge",
+    "fingerprint": "3a38d1b337b0d595a0bf2cc26b69ebf9a4206e65002e0148f5d5e0e1b3bad15f",
+    "version": "3a38d1b337b0",
+    "voice": "156db23431d2",
+    "backend": "e3ad63e9c465"
+  },
+  "models": {
+    "voice_model": "gpt-live-1",
+    "voice": "marin",
+    "backend_model": "gpt-5.6-luna"
+  },
+  "turns": [
+    {
+      "id": "item_da86782ef7d9",
+      "role": "assistant",
+      "text": "Hi, this is Ava with Tablesite. How can I help you today?",
+      "started_at": "2026-09-23T01:42:11.800Z",
+      "ended_at": "2026-09-23T01:42:16.244Z",
+      "interrupted": false,
+      "transcript_confidence": null
+    },
+    {
+      "id": "item_b31ebf0ac35b",
+      "role": "user",
+      "text": "Hi! Can you check if State Bird Provisions has a table for two this Saturday at seven thirty?",
+      "started_at": "2026-09-23T01:42:16.844Z",
+      "ended_at": "2026-09-23T01:42:23.051Z",
+      "interrupted": false,
+      "transcript_confidence": 0.97
+    },
+    {
+      "id": "item_9c0994f80ca0",
+      "role": "assistant",
+      "text": "Sure. Two people this Saturday at seven thirty, at State Bird Provisions. One moment while I check.",
+      "started_at": "2026-09-23T01:42:23.651Z",
+      "ended_at": "2026-09-23T01:42:29.947Z",
+      "interrupted": false,
+      "transcript_confidence": null
+    },
+    {
+      "id": "item_7694a6c488bd",
+      "role": "assistant",
+      "text": "Good news, seven thirty on Saturday is open for two. I haven't booked anything, so you can lock it in with the restaurant or in the Tablesite app.",
+      "started_at": "2026-09-23T01:42:32.347Z",
+      "ended_at": "2026-09-23T01:42:42.718Z",
+      "interrupted": false,
+      "transcript_confidence": null
+    },
+    {
+      "id": "item_f0ca6bee3af0",
+      "role": "user",
+      "text": "Oh perfect. And if we run late, is there anything a bit later?",
+      "started_at": "2026-09-23T01:42:43.318Z",
+      "ended_at": "2026-09-23T01:42:47.800Z",
+      "interrupted": false,
+      "transcript_confidence": 0.95
+    },
+    {
+      "id": "item_d04027237922",
+      "role": "assistant",
+      "text": "Seven forty-five is open too, and seven fifteen if you'd rather go a little earlier.",
+      "started_at": "2026-09-23T01:42:48.400Z",
+      "ended_at": "2026-09-23T01:42:53.956Z",
+      "interrupted": false,
+      "transcript_confidence": null
+    },
+    {
+      "id": "item_0ed499107292",
+      "role": "user",
+      "text": "Great, seven thirty it is. I'll grab it in the app. Thank you!",
+      "started_at": "2026-09-23T01:42:54.556Z",
+      "ended_at": "2026-09-23T01:42:59.039Z",
+      "interrupted": false,
+      "transcript_confidence": 0.96
+    },
+    {
+      "id": "item_0332252e2144",
+      "role": "assistant",
+      "text": "You're welcome. Enjoy State Bird on Saturday!",
+      "started_at": "2026-09-23T01:42:59.639Z",
+      "ended_at": "2026-09-23T01:43:02.231Z",
+      "interrupted": false,
+      "transcript_confidence": null
+    }
+  ],
+  "tool_calls": [
+    {
+      "id": "call_3626488d08e47878231a",
+      "name": "check_restaurant_availability",
+      "arguments": "{\"restaurant\":\"State Bird Provisions\",\"date\":\"2026-09-26\",\"time\":\"19:30\",\"party_size\":2,\"city\":\"San Francisco\"}",
+      "output": "{\"restaurant\":\"State Bird Provisions\",\"date\":\"2026-09-26\",\"weekday\":\"Saturday\",\"requested_time\":\"19:30\",\"party_size\":2,\"status\":\"available\",\"requested_time_available\":true,\"nearest_available_times\":[\"19:30\",\"19:15\",\"19:45\"],\"booking\":\"not booked - availability check only\",\"city\":\"San Francisco\"}",
+      "is_error": false,
+      "created_at": "2026-09-23T01:42:25.651Z"
+    }
+  ],
+  "usage": [
+    {
+      "type": "realtime_model",
+      "model": "gpt-live-1",
+      "session_duration_s": 53.7,
+      "input_audio_tokens": 537,
+      "output_audio_tokens": 513
+    },
+    {
+      "type": "backend_model",
+      "model": "gpt-5.6-luna",
+      "input_tokens": 3300,
+      "output_tokens": 105,
+      "reasoning_tokens": 40
+    }
+  ]
+}
