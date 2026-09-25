@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# Env / secrets
+.env
+.env.local
+*.env.local
+
+# Node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# Eval artifacts
+evals/.results/
+eval-results/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
